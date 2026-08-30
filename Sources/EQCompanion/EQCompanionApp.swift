@@ -14,7 +14,7 @@ struct EQCompanionApp: App {
                 .frame(minWidth: 980, minHeight: 620)
                 .onAppear { OverlayController.shared.bind(model); AppTiming.mark("Window created") }
         }
-        .windowToolbarStyle(.unified)
+        .windowToolbarStyle(.unified(showsTitle: false))
         .commands {
             CommandGroup(replacing: .newItem) {}
             CommandMenu("Overlay") {
@@ -51,6 +51,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         _ = Prefs.shared
+        // Always open on Overview: a tab that misbehaved last time must not be where you land.
+        UserDefaults.standard.set(Tab.overview.rawValue, forKey: "eq.tab")
         AppTiming.mark("Settings loaded")
         GamePriority.applyFromPrefs()
         PerfHUD.shared.applyFromPrefs()

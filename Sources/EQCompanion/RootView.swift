@@ -57,58 +57,55 @@ enum Tab: String, CaseIterable, Identifiable {
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    /// The tab lives in defaults so the Overview's "Open in …" links can switch it; the app
+    /// delegate resets it to Overview at every launch, so it is session state, not a preference.
     @AppStorage("eq.tab") private var tabRaw: String = Tab.overview.rawValue
 
     private var tab: Tab { Tab(rawValue: tabRaw) ?? .overview }
 
     var body: some View {
-        // A real split view, so the window title and the toolbar's divider land at the sidebar's
-        // edge instead of the title running across it. The column is fixed: the drawer never collapses.
-        NavigationSplitView {
+        HStack(spacing: 0) {
             Sidebar(selected: tab) { tabRaw = $0.rawValue }
-                // Fixed width (min = ideal = max leaves no drag handle) but still collapsible
-                // from the toolbar toggle. The column paints the app's own background, not the
-                // split view's vibrant material, so the header is one colour across the window.
-                .navigationSplitViewColumnWidth(min: 236, ideal: 236, max: 236)
-                .background(Theme.background.ignoresSafeArea())
-                .toolbarBackground(Theme.background, for: .windowToolbar)
-        } detail: {
+                .frame(width: 236)
+            Divider().overlay(Theme.border)
             VStack(spacing: 0) {
                 EngineBanner()
                 content
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .background(Theme.background)
-            .toolbarBackground(Theme.background, for: .windowToolbar)
-            .navigationTitle("EQ Companion")
-            .toolbar {
-                // Everything is right-anchored: the character (one per server, so it rarely
-                // changes), the HUD number, the log's state, the overlay switch.
-                ToolbarItemGroup(placement: .primaryAction) {
-                    if let t = PerfHUD.shared.text {
-                        // Preferences → Performance: the HUD's one number, only while it is on.
-                        Text(t).font(.caption.monospacedDigit()).foregroundStyle(Theme.textDim)
-                            .help("This app's share of one processor and its resident memory, once a second")
-                    }
-                    CharacterPicker()
-                    EngineDot().padding(.horizontal, 6)
-                    Button {
-                        model.overlayVisible.toggle()
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: model.overlayVisible ? "rectangle.on.rectangle.fill" : "rectangle.on.rectangle")
-                            Text("DPS overlay")
-                        }
-                    }
-                    .help(model.overlayVisible ? "Hide the floating DPS meter (⇧⌘O)" : "Show the floating DPS meter over the game (⇧⌘O)")
-                }
-            }
         }
-        .navigationSplitViewStyle(.balanced)
         .background(Theme.background)
         .preferredColorScheme(.dark)
         .tint(Theme.gold)
         .onAppear { AppTiming.mark("Interface drawn") }
+        .toolbar {
+            // The window's own title is off (it sat across the sidebar's edge); this one sits
+            // over the sidebar, where a drawer's title belongs.
+            ToolbarItem(placement: .navigation) {
+                Text("EQ Companion").font(.headline).foregroundStyle(Theme.text)
+            }
+            // Everything else is right-anchored: the character (one per server, so it rarely
+            // changes), the HUD number, the log's state, the overlay switch.
+            ToolbarItemGroup(placement: .primaryAction) {
+                if let t = PerfHUD.shared.text {
+                    // Preferences → Performance: the HUD's one number, only while it is on.
+                    Text(t).font(.caption.monospacedDigit()).foregroundStyle(Theme.textDim)
+                        .help("This app's share of one processor and its resident memory, once a second")
+                }
+                CharacterPicker()
+                EngineDot().padding(.horizontal, 6)
+                Button {
+                    model.overlayVisible.toggle()
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: model.overlayVisible ? "rectangle.on.rectangle.fill" : "rectangle.on.rectangle")
+                        Text("DPS overlay")
+                    }
+                }
+                .help(model.overlayVisible ? "Hide the floating DPS meter (⇧⌘O)" : "Show the floating DPS meter over the game (⇧⌘O)")
+            }
+        }
     }
 
     @ViewBuilder
