@@ -1,0 +1,67 @@
+# What's left — pick-up list
+
+State at this commit: the whole engine and app are Swift (no Rust at build or run time), verified
+against the Rust engine's goldens (parser byte-identical on 138 fixtures + the real log; all 20
+fold modules and the combat engine deep-equal; 5,806 op answers identical); 733 tests green;
+`scripts/build-app.sh` produces a self-contained `dist/EQCompanion.app`; Preferences has all
+fifteen pages. Nobody has yet SEEN the UI rendered — every verification so far is by log, test
+and oracle diff. Items are in rough priority order.
+
+## 1. Visual QA pass (first thing, needs a human at the screen)
+- Open every tab against the 20 screenshots (`~/Desktop/*.jpg`) and every Preferences page
+  against `~/Desktop/preferences-*.jpg`; fix layout nits. Expect spacing/size issues, not data.
+- Overlays: the meter, toasts, banner and con card are `NSPanel`s that have never been looked at.
+  Check auto-hide (default ON — the meter only shows while `eqgame` runs), "Move it", opacity.
+- Cursor ring over the CrossOver window; the menu-bar item; the HUD text in the title bar.
+
+## 2. Fold performance
+- Release fold of the 35 MB / 450k-event real log ≈ 12 s (Rust ≈ 2.2 s). Parser is 2.8 s of it
+  after the NSString bridge cache, native `contains`, JSON fast path and literal gates.
+- Profile the fold (`EQFold`): suspects are `JSONValue` event bodies (allocate per event —
+  consider typed accessors on the `Ev` payload), `Re` (ICU) in the combat modules, `JSMap`.
+- `EQBench` (`swift run --package-path Tools eqbench <log>`) times the parser alone; add a fold
+  timing mode.
+
+## 3. Preferences — honest gaps the workers reported
+- Overlay meter still draws its own inline alert line; with the alert banner on, both show the
+  same alert. Decide which wins (upstream: the banner).
+- Toasts instantiate a private `SkyStore`; share `PlaneOfSkyView`'s once one exists app-wide.
+- Cursor ring shows whenever the game is frontmost; upstream also parks it when the cursor is
+  hidden or the window bounds are unknown. If it freezes while EQ grabs the pointer, add a
+  display-linked `NSEvent.mouseLocation` poll.
+- Import: UI prefs (favorites, class filter, count source) land on the next launch because their
+  stores read at construction. Alert dedupe uses a behaviour fingerprint, not upstream's
+  `alertBehaviorKey` bytes. The missing-sound-pack notice on import is not ported.
+- Resist evidence switch left out — nothing in the app shows a resist estimate yet. Port the
+  resist estimator / mob resist card first, then the switch.
+- Banner/con-card duration lists are narrower than upstream's (2/4/6/8/10 vs 2/3/4/6/8/10/15;
+  con card 2/3/5/8/12 vs 3…60 + "until I close it").
+- Voice: only macOS voices; upstream's Kokoro natural-voice engine has no macOS implementation.
+- Updates: no release feed. When there is a GitHub repo, add "check for updates" against its
+  releases API (no auto-install; reveal the download).
+- `Prefs.overlayIndependent` per-overlay values exist for ids meter/toast/banner/conCard only.
+
+## 4. Upstream features not carried (see README "Not (yet) here")
+- Wiki fetch on `knowledgeMiss` (the app currently shows the miss and stops).
+- `/outputfile achievements` inference; the `rebaseline` inventory count source.
+- Chart drag/hover interactions on the combat and leveling charts.
+- `app:` alert triggers (bossDefeat / questComplete) — never fire in either engine.
+- Telemetry / feedback upload — deliberately not.
+
+## 5. Engineering hygiene
+- Duplicate helpers workers flagged: `stableSorted` and `divEuclid` variants across EQFold
+  modules — hoist one each into `JSFn.swift`.
+- `Tests/EQCompanionTests` has no UI snapshot tests; consider a few `ImageRenderer` checks for
+  the overlay views (the cursor-ring test already does one pixel check).
+- `scripts/gen-goldens.sh` needs the upstream checkout at `../everquest-companion`; document the
+  commit the goldens were cut at (`fd5e5bb8`) and re-cut when upstream's engine changes.
+- The `_real` goldens are the owner's own log — never commit them (`Goldens/` is ignored).
+- Distribution: the bundle is ad-hoc signed. For anyone else's Mac: Developer ID signing,
+  hardened runtime + notarization, and a DMG target in `build-app.sh`.
+- `AppModel` still carries the pre-Prefs overlay keys (`eq.overlay.visible/locked/scope`); fold
+  them into `Prefs` when touching the overlay next.
+
+## 6. Nice to have
+- A "What's new" badge on the nav when `ReleaseNotes` is newer than `seenReleaseNotesVersion`.
+- Startup timeline: add "· N log events replayed" (pass `health.events` at the replay mark).
+- Search-preferences: jump to the matched card, not just the page.

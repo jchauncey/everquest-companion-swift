@@ -1,0 +1,327 @@
+{
+  "agilmente's flute of flight": {
+    "instrument": "wind",
+    "source": "eqlwiki.com/Agilmente's Flute of Flight — stats block: \"Wind Resonance: 12\"",
+    "checkedAt": "2026-08-06"
+  },
+  "alluring horn": {
+    "instrument": "brass",
+    "source": "eqlwiki.com/Alluring Horn — stats block: \"Brass Resonance: 8\"",
+    "checkedAt": "2026-08-06"
+  },
+  "azarack skin wristwraps": {
+    "slots": ["WRIST"],
+    "note": "the page states its slot on an unkeyed stats-block line, so the scrape files it under flags and the item reached the planner with no slot at all",
+    "source": "eqlwiki.com/Azarack Skin Wristwraps — stats block: \"No Trade\\n\\nClass: BST\\n\\nRace: ALL\\n\\nWrist\\n\\nAC: 5 HP: +35 END: +10\"",
+    "checkedAt": "2026-08-06"
+  },
+  "brahhms horn": {
+    "instrument": "wind",
+    "source": "eqlwiki.com/Brahhms Horn — stats block: \"Wind Resonance: 11\"",
+    "checkedAt": "2026-08-06"
+  },
+  "breastplate of afflation": {
+    "gmEvent": true,
+    "note": "unfarmable: the page states a GM hand-out and names no drop source, quest or recipe",
+    "source": "eqlwiki.com/Breastplate of Afflation — |notes: \"Obtained during a GM event.\"; |gmitem: \"* Given out in a GM event.\"",
+    "checkedAt": "2026-08-06"
+  },
+  "broken minotaur lord's horn": {
+    "instrument": "wind",
+    "source": "eqlwiki.com/Broken Minotaur Lord's Horn — stats block: \"Wind Resonance: 0\"",
+    "checkedAt": "2026-08-06"
+  },
+  "conch shell horn": {
+    "instrument": "brass",
+    "source": "eqlwiki.com/Conch Shell Horn — stats block: \"Brass Resonance: 11\"",
+    "checkedAt": "2026-08-06"
+  },
+  "crude wooden flute": {
+    "instrument": "wind",
+    "source": "eqlwiki.com/Crude Wooden Flute — stats block: \"Wind Resonance: 0\"",
+    "checkedAt": "2026-08-06"
+  },
+  "da oogly stick": {
+    "gmOnly": true,
+    "note": "unfarmable: the page states a GM item and names no drop source, quest or recipe (owner ruling JOS-64: GM-only is as unfarmable as GM-event)",
+    "source": "eqlwiki.com/Da Oogly Stick — |notes: \"This item is a GM item.\"",
+    "checkedAt": "2026-08-06"
+  },
+  "denon's horn of disaster": {
+    "instrument": "brass",
+    "source": "eqlwiki.com/Denon's Horn of Disaster — stats block: \"Brass Resonance: 14\"",
+    "checkedAt": "2026-08-06"
+  },
+  "drums of the beast": {
+    "instrument": "percussion",
+    "source": "eqlwiki.com/Drums of the Beast — stats block: \"Percussion Resonance: 16\"",
+    "checkedAt": "2026-08-06"
+  },
+  "efreeti war horn": {
+    "instrument": "brass",
+    "source": "eqlwiki.com/Efreeti War Horn — stats block: \"Brass Resonance: 12\"",
+    "checkedAt": "2026-08-06"
+  },
+  "enchanted fine steel great staff": {
+    "slots": ["PRIMARY"],
+    "note": "the page states its slot on an unkeyed stats-block line, so the scrape files it under flags; it carries no effect today and is filed for the host picker, which reads the same slot list",
+    "source": "eqlwiki.com/Enchanted Fine Steel Great Staff — stats block: \"…Class: WAR CLR PAL RNG SHD DRU MNK SHM NEC WIZ MAG ENC BST BER\\n\\nRace: ALL\\n\\nPrimary\"",
+    "checkedAt": "2026-08-06"
+  },
+  "ervaj's flute of flight": {
+    "instrument": "wind",
+    "source": "eqlwiki.com/Ervaj's Flute of Flight — stats block: \"Wind Resonance: 12\"",
+    "checkedAt": "2026-08-06"
+  },
+  "faun flute": {
+    "instrument": "wind",
+    "source": "eqlwiki.com/Faun Flute — stats block: \"Wind Resonance: 11\"",
+    "checkedAt": "2026-08-06"
+  },
+  "fine lute tuners": {
+    "instrument": "string",
+    "source": "eqlwiki.com/Fine Lute Tuners — stats block: \"Stringed Instrument: 10\"",
+    "checkedAt": "2026-08-06"
+  },
+  "flute mouthpiece": {
+    "instrument": "wind",
+    "source": "eqlwiki.com/Flute Mouthpiece — stats block: \"Wind Instrument\"",
+    "checkedAt": "2026-08-06"
+  },
+  "flute of the sacred glade": {
+    "instrument": "wind",
+    "source": "eqlwiki.com/Flute of the Sacred Glade — stats block: \"Wind Resonance: 15\"",
+    "checkedAt": "2026-08-06"
+  },
+  "gnome sandwich": {
+    "gmOnly": true,
+    "note": "unfarmable: the page states a GM item and names no drop source, quest or recipe (owner ruling JOS-64: GM-only is as unfarmable as GM-event)",
+    "source": "eqlwiki.com/Gnome Sandwich — |notes: \"GM item occasionally handed out.\"",
+    "checkedAt": "2026-08-06"
+  },
+  "golem metal wand": {
+    "slots": ["PRIMARY", "SECONDARY"],
+    "note": "the page states its slot on an unkeyed stats-block line, so the scrape files it under flags and its Pillage Enchantment click was hidden from the effect browser (feedback 01KZCGXY8WC6YCD8W44W7EAS5H)",
+    "source": "eqlwiki.com/Golem Metal Wand — stats block: \"Attunable\\n\\nCharges: Unlimited\\n\\nEffect: [[Pillage Enchantment]] (Any Slot, Casting Time: 1.5)\\n\\nWT: 0.1 Size: TINY\\n\\nClass: ALL\\n\\nRace: ALL\\n\\nPrimary Secondary\"",
+    "checkedAt": "2026-08-06"
+  },
+  "gypsy lute": {
+    "instrument": "string",
+    "source": "eqlwiki.com/Gypsy Lute — |focus_effect: \"String Resonance 11\"",
+    "checkedAt": "2026-08-06"
+  },
+  "hand drum": {
+    "instrument": "percussion",
+    "source": "eqlwiki.com/Hand Drum — stats block: \"Percussion Resonance: 8\"",
+    "checkedAt": "2026-08-06"
+  },
+  "horn": {
+    "instrument": "brass",
+    "source": "eqlwiki.com/Horn — stats block: \"Brass Resonance: 10\"",
+    "checkedAt": "2026-08-06"
+  },
+  "horn mouthpiece": {
+    "instrument": "brass",
+    "source": "eqlwiki.com/Horn Mouthpiece — stats block: \"Brass Instrument: 10\"",
+    "checkedAt": "2026-08-06"
+  },
+  "howling werewolf claws": {
+    "gmEvent": true,
+    "note": "unfarmable: the page states a GM hand-out and names no drop source, quest or recipe",
+    "source": "eqlwiki.com/Howling Werewolf Claws — |notes: \"GM Event Item.\"; |gmitem: \"* Given out in a GM event.\"",
+    "checkedAt": "2026-08-06"
+  },
+  "immaculate shell horn": {
+    "instrument": "brass",
+    "source": "eqlwiki.com/Immaculate Shell Horn — stats block: \"Brass Resonance: 14\"",
+    "checkedAt": "2026-08-06"
+  },
+  "kelin`s seven stringed lute": {
+    "instrument": "string",
+    "source": "eqlwiki.com/Kelin`s Seven Stringed Lute — stats block: \"String Resonance: 14\"",
+    "checkedAt": "2026-08-06"
+  },
+  "lianna's flute": {
+    "instrument": "wind",
+    "source": "eqlwiki.com/Lianna's Flute — stats block: \"Wind Resonance: 0\"",
+    "checkedAt": "2026-08-06"
+  },
+  "lute": {
+    "instrument": "string",
+    "source": "eqlwiki.com/Lute — stats block: \"String Resonance: 10\"",
+    "checkedAt": "2026-08-06"
+  },
+  "lute of the gypsy princess": {
+    "instrument": "string",
+    "source": "eqlwiki.com/Lute of the Gypsy Princess — stats block: \"String Resonance: 11\"",
+    "checkedAt": "2026-08-06"
+  },
+  "lute of the howler": {
+    "instrument": "string",
+    "source": "eqlwiki.com/Lute of the Howler — stats block: \"String Resonance: 12\"",
+    "checkedAt": "2026-08-06"
+  },
+  "lyendlln's lute": {
+    "instrument": "string",
+    "source": "eqlwiki.com/Lyendlln's Lute — stats block: \"String Resonance: 14\"",
+    "checkedAt": "2026-08-06"
+  },
+  "lyran's mystical lute": {
+    "instrument": "string",
+    "source": "eqlwiki.com/Lyran's Mystical Lute — stats block: \"String Resonance: 15\"",
+    "checkedAt": "2026-08-06"
+  },
+  "lyssa`s darkwood piccolo": {
+    "instrument": "wind",
+    "source": "eqlwiki.com/Lyssa`s Darkwood Piccolo — stats block: \"Wind Resonance: 14\"",
+    "checkedAt": "2026-08-06"
+  },
+  "mahlin's mystical bongos": {
+    "instrument": "percussion",
+    "source": "eqlwiki.com/Mahlin's Mystical Bongos — stats block: \"Percussion Resonance: 11\"",
+    "checkedAt": "2026-08-06"
+  },
+  "mandolin": {
+    "instrument": "string",
+    "source": "eqlwiki.com/Mandolin — stats block: \"String Resonance: 10\"",
+    "checkedAt": "2026-08-06"
+  },
+  "mcvaxius` horn of war": {
+    "instrument": "brass",
+    "source": "eqlwiki.com/McVaxius` Horn of War — |focus_effect: \"Brass Resonance 14\"",
+    "checkedAt": "2026-08-06"
+  },
+  "minotaur horn": {
+    "instrument": "wind",
+    "source": "eqlwiki.com/Minotaur Horn — |focus_effect: \"Wind Resonance 10\"",
+    "checkedAt": "2026-08-06"
+  },
+  "mistmoore battle drums": {
+    "instrument": "percussion",
+    "source": "eqlwiki.com/Mistmoore Battle Drums — |focus_effect: \"Percussion Resonance 11\"",
+    "checkedAt": "2026-08-06"
+  },
+  "mystical lute": {
+    "instrument": "string",
+    "source": "eqlwiki.com/Mystical Lute — stats block: \"String Resonance: 11\"",
+    "checkedAt": "2026-08-06"
+  },
+  "nostrolo tambourine": {
+    "instrument": "percussion",
+    "source": "eqlwiki.com/Nostrolo Tambourine — stats block: \"Percussion Resonance: 12\"",
+    "checkedAt": "2026-08-06"
+  },
+  "oakwynd": {
+    "gmEvent": true,
+    "note": "unfarmable: the page states a GM hand-out and names no drop source, quest or recipe",
+    "source": "eqlwiki.com/Oakwynd — |notes: \"Obtained during a GM event.\"; |gmitem: \"* Given out in a GM event.\"",
+    "checkedAt": "2026-08-06"
+  },
+  "obtenebrate claymore": {
+    "gmEvent": true,
+    "note": "unfarmable: the page states a GM hand-out and names no drop source, quest or recipe",
+    "source": "eqlwiki.com/Obtenebrate Claymore — |notes: \"GM Event Item.\"",
+    "checkedAt": "2026-08-06"
+  },
+  "pendant of salvation": {
+    "gmEvent": true,
+    "note": "unfarmable: the page states a GM hand-out and names no drop source, quest or recipe",
+    "source": "eqlwiki.com/Pendant of Salvation — |notes: \"Given out in a GM event.\"; |gmitem: \"* Given out in a GM event.\"",
+    "checkedAt": "2026-08-06"
+  },
+  "raw bamboo": {
+    "instrument": "wind",
+    "source": "eqlwiki.com/Raw Bamboo — stats block: \"Wind Instrument\"",
+    "checkedAt": "2026-08-06"
+  },
+  "scorpion pincer": {
+    "instrument": "wind",
+    "source": "eqlwiki.com/Scorpion Pincer — stats block: \"Wind Resonance: 10\"",
+    "checkedAt": "2026-08-06"
+  },
+  "selo`s drums of the march": {
+    "instrument": "percussion",
+    "source": "eqlwiki.com/Selo`s Drums of the March — |focus_effect: \"Percussion Resonance 14\"",
+    "checkedAt": "2026-08-06"
+  },
+  "sharkskin drum": {
+    "instrument": "percussion",
+    "source": "eqlwiki.com/Sharkskin Drum — stats block: \"Percussion Resonance: 12\"",
+    "checkedAt": "2026-08-06"
+  },
+  "singing short sword": {
+    "instrument": "all",
+    "source": "eqlwiki.com/Singing Short Sword — stats block: \"All Instrument Types\"",
+    "checkedAt": "2026-08-06"
+  },
+  "slippers of the silent stalker": {
+    "gmEvent": true,
+    "note": "unfarmable: the page states a GM hand-out and names no drop source, quest or recipe",
+    "source": "eqlwiki.com/Slippers of the Silent Stalker — |notes: \"Obtained during a GM event.\"; |gmitem: \"* Given out in a GM event.\"",
+    "checkedAt": "2026-08-06"
+  },
+  "staff of endless adventure": {
+    "gmEvent": true,
+    "note": "unfarmable: the page states a GM hand-out and names no drop source, quest or recipe",
+    "source": "eqlwiki.com/Staff of Endless Adventure — |notes: \"GM Event item for Fourth of July (U.S.)\"",
+    "checkedAt": "2026-08-06"
+  },
+  "stone of gnoming": {
+    "gmOnly": true,
+    "note": "unfarmable: the page states a GM Only item and names no drop source, quest or recipe — the wiki adds it is sold in Sunset Home, the GM zone, not a player vendor (owner ruling JOS-64)",
+    "source": "eqlwiki.com/Stone of Gnoming — |notes: \"GM Only item.\"",
+    "checkedAt": "2026-08-06"
+  },
+  "the butcherblock hammer": {
+    "gmEvent": true,
+    "note": "unfarmable: the page states a GM hand-out and names no drop source, quest or recipe",
+    "source": "eqlwiki.com/The Butcherblock Hammer — |notes: \"Obtained during a GM event.\"; |gmitem: \"* Given out in a GM event.\"",
+    "checkedAt": "2026-08-06"
+  },
+  "trumpet valves": {
+    "instrument": "brass",
+    "source": "eqlwiki.com/Trumpet Valves — stats block: \"Brass Instrument: 10\"",
+    "checkedAt": "2026-08-06"
+  },
+  "unfinished brass trumpet": {
+    "instrument": "brass",
+    "source": "eqlwiki.com/Unfinished Brass Trumpet — stats block: \"Brass Instruments: 10\"",
+    "checkedAt": "2026-08-06"
+  },
+  "unfinished lute body": {
+    "instrument": "string",
+    "source": "eqlwiki.com/Unfinished Lute Body — stats block: \"Stringed Instrument\"",
+    "checkedAt": "2026-08-06"
+  },
+  "unfinished lute neck": {
+    "instrument": "string",
+    "source": "eqlwiki.com/Unfinished Lute Neck — stats block: \"Stringed Instrument\"",
+    "checkedAt": "2026-08-06"
+  },
+  "unicorn horn": {
+    "instrument": "wind",
+    "source": "eqlwiki.com/Unicorn Horn — stats block: \"Wind Resonance: 12\"",
+    "checkedAt": "2026-08-06"
+  },
+  "verlekarnorm's horn of disaster": {
+    "instrument": "brass",
+    "source": "eqlwiki.com/Verlekarnorm's Horn of Disaster — stats block: \"Brass Resonance: 12\"",
+    "checkedAt": "2026-08-06"
+  },
+  "walrus skin drum": {
+    "instrument": "percussion",
+    "source": "eqlwiki.com/Walrus Skin Drum — stats block: \"Percussion Resonance: 13\"",
+    "checkedAt": "2026-08-06"
+  },
+  "wooden flute": {
+    "instrument": "wind",
+    "source": "eqlwiki.com/Wooden Flute — stats block: \"Wind Resonance: 8\"",
+    "checkedAt": "2026-08-06"
+  },
+  "writ of innoruuk": {
+    "gmEvent": true,
+    "note": "unfarmable: the page states a GM hand-out and names no drop source, quest or recipe",
+    "source": "eqlwiki.com/Writ of Innoruuk — |notes: \"Obtained during a GM event.\"; |gmitem: \"* Given out in a GM event.\"",
+    "checkedAt": "2026-08-06"
+  }
+}
