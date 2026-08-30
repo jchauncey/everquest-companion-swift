@@ -699,8 +699,11 @@ struct MapFlow: Layout {
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = proposal.width ?? 800
         let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        // An unbounded proposal (a split view probing) must not be echoed back as our width —
+        // an infinite answer wrecks every ancestor. Answer with the one-line width instead.
+        let oneLine = sizes.reduce(CGFloat(0)) { $0 + $1.width } + spacing * CGFloat(max(0, sizes.count - 1))
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? oneLine
         let lines = rows(sizes, width: width)
         var h: CGFloat = 0
         for (i, line) in lines.enumerated() {
