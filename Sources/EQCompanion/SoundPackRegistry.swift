@@ -375,7 +375,7 @@ final class SoundPackRegistry {
             throw SoundPackError.badManifest("pack contained no audio files")
         }
 
-        await onProgress(.converting)
+        onProgress(.converting)
         var map: [String: JSONValue] = [:]
         for s in sounds where fm.fileExists(atPath: stage.appendingPathComponent(s.file).path) {
             map[s.soundId] = ["file": .string(s.file), "label": .string(s.label)]
