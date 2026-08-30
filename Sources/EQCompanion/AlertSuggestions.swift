@@ -373,8 +373,10 @@ struct FlowLayout: Layout {
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
         // Never echo an unbounded proposal back as our width (see MapFlow): one line instead.
-        let oneLine = sizes.reduce(CGFloat(0)) { $0 + $1.width } + spacing * CGFloat(max(0, sizes.count - 1))
-        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? oneLine
+        let width: CGFloat
+        if let w = proposal.width, w.isFinite { width = w }
+        else if proposal.width == nil { width = sizes.map(\.width).max() ?? 0 }
+        else { width = sizes.reduce(CGFloat(0)) { $0 + $1.width } + spacing * CGFloat(max(0, sizes.count - 1)) }
         var x: CGFloat = 0, y: CGFloat = 0, lineHeight: CGFloat = 0
         for size in sizes {
             if x + size.width > width, x > 0 {

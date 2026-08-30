@@ -78,6 +78,10 @@ struct RootView: View {
                 content
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            // The split view sizes the detail column by the content's IDEAL size, and a tab whose
+            // header measures unwrapped (Maps: 1175 pt) would be laid out wider than the column
+            // and spill over the sidebar. The column's ideal is pinned here, once, for every tab.
+            .frame(minWidth: 480, idealWidth: 800, maxWidth: .infinity, minHeight: 360, idealHeight: 600, maxHeight: .infinity)
             .background(Theme.background)
             .toolbarBackground(Theme.background, for: .windowToolbar)
             .navigationTitle("EQ Companion")

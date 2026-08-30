@@ -702,8 +702,12 @@ struct MapFlow: Layout {
         let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
         // An unbounded proposal (a split view probing) must not be echoed back as our width —
         // an infinite answer wrecks every ancestor. Answer with the one-line width instead.
-        let oneLine = sizes.reduce(CGFloat(0)) { $0 + $1.width } + spacing * CGFloat(max(0, sizes.count - 1))
-        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? oneLine
+        // Nil ("what is your ideal?") gets the widest child — the flow can wrap to that; a flow
+        // whose ideal is one unwrapped line makes every ancestor want to be that wide.
+        let width: CGFloat
+        if let w = proposal.width, w.isFinite { width = w }
+        else if proposal.width == nil { width = sizes.map(\.width).max() ?? 0 }
+        else { width = sizes.reduce(CGFloat(0)) { $0 + $1.width } + spacing * CGFloat(max(0, sizes.count - 1)) }
         let lines = rows(sizes, width: width)
         var h: CGFloat = 0
         for (i, line) in lines.enumerated() {
