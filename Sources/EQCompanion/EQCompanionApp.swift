@@ -14,7 +14,7 @@ struct EQCompanionApp: App {
                 .frame(minWidth: 980, minHeight: 620)
                 .onAppear { OverlayController.shared.bind(model); AppTiming.mark("Window created") }
         }
-        .windowToolbarStyle(.unified(showsTitle: false))
+        .windowToolbarStyle(.unified)
         .commands {
             CommandGroup(replacing: .newItem) {}
             CommandMenu("Overlay") {
