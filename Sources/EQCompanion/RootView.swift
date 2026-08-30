@@ -62,40 +62,49 @@ struct RootView: View {
     private var tab: Tab { Tab(rawValue: tabRaw) ?? .overview }
 
     var body: some View {
-        HStack(spacing: 0) {
+        // A real split view, so the window title and the toolbar's divider land at the sidebar's
+        // edge instead of the title running across it. The column is fixed: the drawer never collapses.
+        NavigationSplitView {
             Sidebar(selected: tab) { tabRaw = $0.rawValue }
-                .frame(width: 236)
-            Divider().overlay(Theme.border)
+                .navigationSplitViewColumnWidth(236)
+                .toolbar(removing: .sidebarToggle)
+                .background(Theme.background)
+        } detail: {
             VStack(spacing: 0) {
                 EngineBanner()
                 content
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .background(Theme.background)
+            .navigationTitle("EQ Companion")
+            .toolbar {
+                // Everything is right-anchored: the character (one per server, so it rarely
+                // changes), the HUD number, the log's state, the overlay switch.
+                ToolbarItemGroup(placement: .primaryAction) {
+                    if let t = PerfHUD.shared.text {
+                        // Preferences → Performance: the HUD's one number, only while it is on.
+                        Text(t).font(.caption.monospacedDigit()).foregroundStyle(Theme.textDim)
+                            .help("This app's share of one processor and its resident memory, once a second")
+                    }
+                    CharacterPicker()
+                    EngineDot().padding(.horizontal, 6)
+                    Button {
+                        model.overlayVisible.toggle()
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: model.overlayVisible ? "rectangle.on.rectangle.fill" : "rectangle.on.rectangle")
+                            Text("DPS overlay")
+                        }
+                    }
+                    .help(model.overlayVisible ? "Hide the floating DPS meter (⇧⌘O)" : "Show the floating DPS meter over the game (⇧⌘O)")
+                }
+            }
         }
+        .navigationSplitViewStyle(.balanced)
         .background(Theme.background)
         .preferredColorScheme(.dark)
         .tint(Theme.gold)
         .onAppear { AppTiming.mark("Interface drawn") }
-        .toolbar {
-            ToolbarItem(placement: .navigation) { CharacterPicker() }
-            ToolbarItem(placement: .primaryAction) {
-                // Preferences → Performance: the HUD's one number, only while it is switched on.
-                if let t = PerfHUD.shared.text {
-                    Text(t).font(.caption.monospacedDigit()).foregroundStyle(Theme.textDim)
-                        .help("This app's share of one processor and its resident memory, once a second")
-                }
-            }
-            ToolbarItem(placement: .primaryAction) { EngineDot() }
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    model.overlayVisible.toggle()
-                } label: {
-                    Label("Overlay", systemImage: model.overlayVisible ? "rectangle.on.rectangle.fill" : "rectangle.on.rectangle")
-                }
-                .help("Show or hide the floating DPS overlay (⇧⌘O)")
-            }
-        }
     }
 
     @ViewBuilder
@@ -222,21 +231,30 @@ struct EngineDot: View {
         }
     }
 
+    /// What the dot says: the state of the LOG READER, in the player's words.
     private var text: String {
         switch model.launchPhase {
-        case .live: return model.health?.status == "live" ? "Live" : "Ready"
-        case .folding: return "Folding"
+        case .live: return model.health?.status == "live" ? "Log live" : "Log ready"
+        case .folding: return "Catching up"
         case .starting: return "Starting"
-        case .absent: return "No engine"
-        case .failed: return "Engine failed"
+        case .absent: return "No log"
+        case .failed: return "Reader failed"
         }
     }
 
     private var help: String {
-        if let h = model.health {
-            return "Engine \(h.status), epoch \(h.epoch), \(Format.count(h.events)) events, up \(Format.clock(ms: h.uptimeMs))"
+        let lead: String
+        switch model.launchPhase {
+        case .live: lead = "Live: the log is being followed as the game writes it - every panel updates as lines land."
+        case .folding: lead = "Catching up: reading the log's history before going live."
+        case .starting: lead = "Starting the log reader."
+        case .absent: lead = "No character log is attached - pick one, or point Preferences → Game at your EverQuest folder."
+        case .failed: lead = "The log reader failed to start - see the card in the window, or client.log."
         }
-        return "Engine \(model.launchPhase)"
+        if let h = model.health {
+            return lead + " \(Format.count(h.events)) events read, up \(Format.clock(ms: h.uptimeMs))."
+        }
+        return lead
     }
 }
 

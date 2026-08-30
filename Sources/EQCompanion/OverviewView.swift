@@ -108,17 +108,20 @@ struct OverviewView: View {
                 Text("Nothing folded yet.").foregroundStyle(Theme.textDim)
             } else {
                 Text("Last hour").font(.caption).foregroundStyle(Theme.textDim)
-                HStack(spacing: 8) {
+                // Fixed-width tiles that wrap: a narrow window moves a tile down rather than
+                // squeezing its number and clipping its label.
+                FlowLayout(spacing: 8) {
                     ForEach(leveling.tiles) { t in
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(alignment: .firstTextBaseline, spacing: 3) {
                                 Text(t.value).font(.system(size: 22, weight: .semibold)).foregroundStyle(Theme.gold).monospacedDigit()
-                                if !t.unit.isEmpty { Text(t.unit).font(.caption2).foregroundStyle(Theme.textDim) }
+                                    .lineLimit(1).fixedSize()
+                                if !t.unit.isEmpty { Text(t.unit).font(.caption2).foregroundStyle(Theme.textDim).fixedSize() }
                             }
                             Text(t.label).font(.caption2).foregroundStyle(Theme.textDim).lineLimit(1)
                         }
                         .padding(8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(width: 132, alignment: .leading)
                         .background(RoundedRectangle(cornerRadius: 6).fill(Theme.paperRaised))
                         .help(t.title)
                     }
