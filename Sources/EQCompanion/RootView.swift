@@ -70,8 +70,10 @@ struct RootView: View {
                 // from the toolbar toggle. The column paints the app's own background, not the
                 // split view's vibrant material, so the header is one colour across the window.
                 .navigationSplitViewColumnWidth(min: 236, ideal: 236, max: 236)
+                // The fill runs the column's full height, under the toolbar too: no opaque
+                // toolbar band, so nothing draws a separator between the toggle and the rows.
                 .background(Theme.background.ignoresSafeArea())
-                .toolbarBackground(Theme.background, for: .windowToolbar)
+                .toolbarBackground(.hidden, for: .windowToolbar)
         } detail: {
             VStack(spacing: 0) {
                 EngineBanner()
@@ -82,8 +84,8 @@ struct RootView: View {
             // header measures unwrapped (Maps: 1175 pt) would be laid out wider than the column
             // and spill over the sidebar. The column's ideal is pinned here, once, for every tab.
             .frame(minWidth: 480, idealWidth: 800, maxWidth: .infinity, minHeight: 360, idealHeight: 600, maxHeight: .infinity)
-            .background(Theme.background)
-            .toolbarBackground(Theme.background, for: .windowToolbar)
+            .background(Theme.background.ignoresSafeArea())
+            .toolbarBackground(.hidden, for: .windowToolbar)
             .navigationTitle("EQ Companion")
             .toolbar {
                 // Everything is right-anchored: the character (one per server, so it rarely
