@@ -66,9 +66,12 @@ struct RootView: View {
         // edge instead of the title running across it. The column is fixed: the drawer never collapses.
         NavigationSplitView {
             Sidebar(selected: tab) { tabRaw = $0.rawValue }
-                .navigationSplitViewColumnWidth(236)
-                .toolbar(removing: .sidebarToggle)
-                .background(Theme.background)
+                // Fixed width (min = ideal = max leaves no drag handle) but still collapsible
+                // from the toolbar toggle. The column paints the app's own background, not the
+                // split view's vibrant material, so the header is one colour across the window.
+                .navigationSplitViewColumnWidth(min: 236, ideal: 236, max: 236)
+                .background(Theme.background.ignoresSafeArea())
+                .toolbarBackground(Theme.background, for: .windowToolbar)
         } detail: {
             VStack(spacing: 0) {
                 EngineBanner()
@@ -76,6 +79,7 @@ struct RootView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .background(Theme.background)
+            .toolbarBackground(Theme.background, for: .windowToolbar)
             .navigationTitle("EQ Companion")
             .toolbar {
                 // Everything is right-anchored: the character (one per server, so it rarely
