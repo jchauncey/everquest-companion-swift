@@ -208,10 +208,12 @@ enum MapFile {
     /// rather than dropping the point.
     @inline(__always)
     static func sizeClass(_ v: Double) -> Int {
-        let n = Int(v.rounded())
-        if n <= 1 { return 1 }
-        if n >= 3 { return 3 }
-        return 2
+        // CLAMP BEFORE CONVERTING, the way `byte` above does. `num` admits any finite Double, and
+        // map packs are third-party files: a `P` line whose size field reads `1e300` is finite,
+        // passes the parser, and traps `Int(_:)` — taking the whole zone's map with it.
+        if !(v > 1) { return 1 }   // also catches NaN, which never reaches here but costs nothing
+        if v >= 3 { return 3 }
+        return Int(v.rounded()) <= 1 ? 1 : 2
     }
 
     private static func pushSegment(_ fields: [Substring], _ out: inout MapRawLines) -> Bool {

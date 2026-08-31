@@ -46,7 +46,16 @@ struct MobsView: View {
         var nums: [Int] = []
         var cur = 0, has = false
         for ch in text {
-            if let d = ch.wholeNumberValue, d >= 0, d <= 9 { cur = cur * 10 + d; has = true }
+            // `&*`/`&+`, not `*`/`+`: this reads FREE TEXT from the scraped mob catalog, and a run
+            // of twenty digits in some page's level field would overflow and trap the whole Mobs
+            // list. A wrapped number is nonsense, but the cap below discards it either way, and a
+            // nonsense level is a far smaller problem than a crash.
+            if let d = ch.wholeNumberValue, d >= 0, d <= 9, cur < 1_000_000 {
+                cur = cur &* 10 &+ d
+                has = true
+            } else if let d = ch.wholeNumberValue, d >= 0, d <= 9 {
+                has = true   // still inside a number, just past any level a game could state
+            }
             else if has { nums.append(cur); cur = 0; has = false }
         }
         if has { nums.append(cur) }

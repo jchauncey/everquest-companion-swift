@@ -33,8 +33,19 @@ struct MapElevation {
 
     struct Cell: Hashable { var cx: Int; var cy: Int }
 
+    /// The furthest cell index a coordinate may land in. Real maps span thousands of units, so a
+    /// bound here costs nothing real - and without one, `Int(_:)` traps on the finite-but-enormous
+    /// coordinate a third-party pack is free to contain (`num` admits any finite Double). Kept well
+    /// inside `Int.max` so the ring arithmetic in `z(x:y:)` cannot overflow either.
+    private static let maxCell = 1 << 40
+
     private static func cellOf(_ x: Double, _ y: Double) -> Cell {
-        Cell(cx: Int((x / cell).rounded(.down)), cy: Int((y / cell).rounded(.down)))
+        func index(_ v: Double) -> Int {
+            guard v.isFinite else { return 0 }
+            let scaled = (v / cell).rounded(.down)
+            return Int(min(Double(maxCell), max(Double(-maxCell), scaled)))
+        }
+        return Cell(cx: index(x), cy: index(y))
     }
 
     /// Index every segment endpoint the map draws, EXCEPT the legend's.

@@ -94,7 +94,11 @@ private func offlineSpans(_ s: OverviewProgression, _ t0: Int64, _ t1: Int64) ->
     var out: [OvSpan] = []
     var i = max(0, upperBound(s.offlineStart, t0) - 1)
     while i < s.offlineStart.count, s.offlineStart[i] < t1 {
-        let start = max(s.offlineStart[i], t0), end = min(s.offlineEnd[i], t1)
+        // `offlineEnd` is a SEPARATE column, decoded from its own JSON array, and a logout that has
+        // not ended yet is a start with no end. Its length is not `offlineStart`'s to assume - the
+        // same guard the two siblings of this loop already carry (`LevelingStats`, `LootData`).
+        let start = max(s.offlineStart[i], t0)
+        let end = min(i < s.offlineEnd.count ? s.offlineEnd[i] : t1, t1)
         if end > start { out.append(OvSpan(start: start, end: end)) }
         i += 1
     }
@@ -345,7 +349,9 @@ func overviewLeveling(_ s: OverviewProgression, statedLevel: (level: Int, ts: In
     }
 
     // Window B: the last zone interval.
-    if let i = s.zoneName.indices.last {
+    // `i` names a zone, but `zoneStart` is its own column — the line below already refuses to
+    // assume `zoneEnd` is as long as `zoneName`, and `zoneStart` deserves the same doubt.
+    if let i = s.zoneName.indices.last, i < s.zoneStart.count {
         let t0 = s.zoneStart[i]
         let end = (i < s.zoneEnd.count && s.zoneEnd[i] != 0) ? min(s.zoneEnd[i], s.lastTs) : s.lastTs
         if end > t0 {
@@ -356,7 +362,11 @@ func overviewLeveling(_ s: OverviewProgression, statedLevel: (level: Int, ts: In
 
     // History: the last five level spans, online time.
     var spans: [(from: Int, to: Int, ms: Int64)] = []
-    var i = s.levelTs.count - 1
+    // Walked from `levelTs`, read from `levelValue`: a ding whose new level has not been parsed
+    // yet is exactly a `levelTs` one longer than `levelValue`, so the walk starts at whichever
+    // column is shorter. (The safe read at the top of this file already pairs `.last` with
+    // `.last` for the same reason.)
+    var i = min(s.levelTs.count, s.levelValue.count) - 1
     while i > 0, spans.count < 5 {
         let from = s.levelValue[i - 1], to = s.levelValue[i]
         if to <= from { break }

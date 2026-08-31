@@ -13,6 +13,14 @@ for everything here. Port faithfully — the upstream comments state rules, and 
 
 ## Commands
 
+`make help` lists every target; the Makefile is a thin wrapper over exactly the commands below, so
+what CI runs and what you run are the same lines. `make verify` is the CI entry point.
+
+CI (`.circleci/config.yml`) builds both packages and runs the suite on every push. It CANNOT prove
+parity: `Goldens/` and the owner's EverQuest install do not exist on a CI box, so those suites
+`XCTSkip` there. The run prints the skip count and reasons so a green build never reads as more
+than it is — only a local `make verify` with `Goldens/` present proves byte-identity.
+
 ```sh
 swift build                                   # debug build of every target
 swift run                                     # the app (the only executable in the root package)

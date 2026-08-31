@@ -196,7 +196,7 @@ struct OverviewView: View {
         let n = Int((duration / bucketMs).rounded(.up)) + 1
         var youPet = [Double](repeating: 0, count: n), pet = [Double](repeating: 0, count: n), incoming = [Double](repeating: 0, count: n)
         for e in events {
-            let b = min(n - 1, Int((e["t"].double ?? 0) / bucketMs))
+            let b = dpsBucketIndex(t: e["t"].double ?? 0, bucketMs: bucketMs, count: n)
             let amt = e["amount"].double ?? 0
             switch e["kind"].string {
             case "you": youPet[b] += amt

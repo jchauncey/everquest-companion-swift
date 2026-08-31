@@ -1,0 +1,71 @@
+# CI for EQ Companion.
+#
+# WHAT THIS CAN AND CANNOT PROVE. Two of this project's test inputs do not exist on a CI box:
+#
+#   * `Goldens/` — 218 MB, git-ignored, cut from the upstream RUST engine with cargo. The golden
+#     suites `XCTSkip` without it, so they pass by DEFAULT here. A green CI run therefore does NOT
+#     mean the parser is still byte-identical to the Rust engine; only a local `make verify` with
+#     goldens present means that. The "What was skipped" step below prints the count on every run so
+#     this never goes unnoticed: a check that quietly proves less than it appears to is worse than
+#     no check at all.
+#   * The owner's EverQuest install — the map-pack and real-log suites skip without it.
+#
+# What CI DOES prove: the whole package and the Tools package compile under a clean toolchain from a
+# bare checkout, and every test needing neither of those inputs passes. That covers the SwiftUI app
+# layer, which is where this project's recent regressions have actually been.
+#
+# ONE JOB, NO DEPENDENCY CACHE, deliberately: the package has no external dependencies (every target
+# is local, and Tools/ depends on the root by path), so there is no `Package.resolved` to key a
+# cache on and nothing to fetch. Splitting build and test across two executors would simply compile
+# everything twice.
+version: 2.1
+
+jobs:
+  verify:
+    macos:
+      # CLAUDE.md's floor is Xcode 16 / Swift 6; the owner builds on 26.2. Pin an image CircleCI
+      # actually publishes, and move it deliberately — a silent bump is a silent toolchain change.
+      xcode: 16.2.0
+    resource_class: macos.m1.medium.gen1
+    environment:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+    steps:
+      - checkout
+      - run:
+          name: Toolchain
+          command: swift --version && xcodebuild -version
+      - run:
+          name: Build every target
+          command: make build
+      - run:
+          name: Build the developer tools (Tools/ is a separate package)
+          command: make tools
+      - run:
+          name: Tests
+          # The raw output is what a failure needs, so it is kept rather than prettified.
+          command: make test 2>&1 | tee /tmp/test.log
+      - run:
+          name: What was skipped, and why
+          when: always
+          # XCTest writes one "' skipped (" line per skipped test and a "Test skipped - <reason>"
+          # line carrying the reason the test itself gave. Both are counted and the distinct
+          # reasons printed, so a green build states in its own log exactly what it did not check.
+          command: |
+            count=$(grep -c "' skipped (" /tmp/test.log || true)
+            echo "Skipped tests: ${count:-0}"
+            echo
+            echo "Reasons given by the tests themselves:"
+            grep -o 'Test skipped - .*' /tmp/test.log | sort | uniq -c | sort -rn || echo "  (none)"
+            echo
+            echo "Golden suites need Goldens/ (218 MB, cut from the upstream Rust engine)."
+            echo "Map-pack and real-log suites need the owner's EverQuest install."
+            echo "Neither exists on CI, so those suites skipped. A green run here does NOT prove"
+            echo "byte-parity with the Rust engine — only 'make verify' with Goldens/ does."
+      - store_artifacts:
+          path: /tmp/test.log
+          destination: test.log
+
+workflows:
+  every_push:
+    jobs:
+      - verify

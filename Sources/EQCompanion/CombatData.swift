@@ -347,6 +347,24 @@ struct DpsSeries {
     func out(_ i: Int) -> Double { you[i] + pet[i] + group[i] }
 }
 
+/// Which bucket an event at `t` milliseconds falls in, for a series of `count` buckets.
+///
+/// ONE FUNCTION BECAUSE THERE USED TO BE TWO. The Combat tab clamped at both ends; the Overview
+/// tab's copy clamped only at the top, so an event stamped before its own encounter's start —
+/// a pre-pull debuff, a clock correction, an encounter whose start was revised later — produced a
+/// negative index and crashed the default tab on the next subscript. Divergent copies of a
+/// bounds check are how one of them ends up wrong, so there is now nowhere for them to diverge.
+///
+/// The clamp is applied to the DOUBLE before the conversion: `Int(_:)` traps on a value too large
+/// for `Int`, so clamping after the fact would be too late.
+@inline(__always)
+func dpsBucketIndex(t: Double, bucketMs: Double, count: Int) -> Int {
+    guard count > 0, bucketMs > 0, t.isFinite else { return 0 }
+    let raw = t / bucketMs
+    guard raw.isFinite else { return 0 }
+    return Int(min(Double(count - 1), max(0, raw)))
+}
+
 /// Bucket the encounter's events per `bucketMs` and smooth with a TRAILING rolling mean — the
 /// same reading a live DPS meter gives ("your damage over the last 5 seconds"), so the curve's
 /// height at time t is a rate you could actually have seen on screen at time t. Leading buckets
@@ -362,7 +380,7 @@ func buildDpsSeries(_ tl: JSONValue, live: Bool = false) -> DpsSeries {
     for e in tl["events"].array ?? [] {
         let amount = e["amount"].double ?? 0
         if amount <= 0 { continue }
-        let i = min(n - 1, max(0, Int((e["t"].double ?? 0) / bucketMs)))
+        let i = dpsBucketIndex(t: e["t"].double ?? 0, bucketMs: bucketMs, count: n)
         hasAny = true
         switch e["kind"].string ?? "" {
         case "you": rawYou[i] += amount
