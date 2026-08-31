@@ -65,10 +65,12 @@ enum MapAnnotations {
             var lines: [String] = []
             for row in MapPaneRows.mobRows(zoneName: z.name) where row.kind == .mob {
                 for pin in row.pins {
-                    // The game's label convention: underscores, shown as spaces. Gold, mid size.
+                    // The game's label convention: underscores, shown as spaces. A strong red:
+                    // readable on the game's parchment map AND on the companion's dark one —
+                    // gold disappears into parchment.
                     let label = row.name.replacingOccurrences(of: ",", with: " ")
                         .replacingOccurrences(of: " ", with: "_")
-                    lines.append(String(format: "P %.4f, %.4f, 0.0000, 217, 178, 95, 2, %@",
+                    lines.append(String(format: "P %.4f, %.4f, 0.0000, 200, 40, 40, 2, %@",
                                         pin.x, pin.y, label))
                 }
             }

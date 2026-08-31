@@ -27,7 +27,7 @@ final class MapAnnotationsTests: XCTestCase {
         let parsed = MapFile.parse(text: text, layer: 1)
         XCTAssertEqual(parsed.skipped, 0, "every generated line must parse")
         XCTAssertFalse(parsed.points.isEmpty)
-        XCTAssertTrue(parsed.points.allSatisfy { $0.r == 217 && $0.size == 2 })
+        XCTAssertTrue(parsed.points.allSatisfy { $0.r == 200 && $0.size == 2 })
         XCTAssertTrue(parsed.points.allSatisfy { !$0.display.contains("_") })
     }
 }
