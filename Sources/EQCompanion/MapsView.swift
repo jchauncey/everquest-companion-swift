@@ -397,11 +397,18 @@ struct MapsView: View {
             HStack(spacing: 4) {
                 TextField("Find a mob or label\u{2026}", text: $query)
                     .textFieldStyle(.roundedBorder)
+                if !query.isEmpty {
+                    // The X clears the filter — every mob comes back on the map.
+                    Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(Theme.textFaint)
+                        .help("Clear the search - every mob and label comes back")
+                }
                 Button {
                     paneOpen = false
                     UserDefaults.standard.set("0", forKey: Self.paneKey)
                 } label: {
-                    Image(systemName: "xmark")
+                    Image(systemName: "sidebar.right")
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(Theme.textFaint)
