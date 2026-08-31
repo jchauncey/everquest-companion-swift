@@ -55,6 +55,9 @@ final class AppModel {
     }
     var install: ResolvedInstall?
     var logsReadable: String = "unknown"
+    /// True when launch resolved NO install: the window opens with the setup sheet, because an
+    /// app that reads a log it cannot find should say so first, not sit empty.
+    var showInstallPrompt = false
     var characters: [CharacterRef] = []
     var selectedLogPath: String? = UserDefaults.standard.string(forKey: "eq.selectedLogPath") {
         didSet { UserDefaults.standard.set(selectedLogPath, forKey: "eq.selectedLogPath") }
@@ -118,6 +121,7 @@ final class AppModel {
 
     func boot() {
         resolveInstall()
+        if install == nil { showInstallPrompt = true }
         startEngine()
     }
 
@@ -164,6 +168,7 @@ final class AppModel {
     func setInstallOverride(_ path: String) {
         installOverride = path
         resolveInstall()
+        if install != nil { showInstallPrompt = false }
         Task { await self.refreshCharacters(); await self.attachSelected() }
     }
 

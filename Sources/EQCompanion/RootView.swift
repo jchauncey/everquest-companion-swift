@@ -118,6 +118,7 @@ struct RootView: View {
         .preferredColorScheme(.dark)
         .tint(Theme.gold)
         .onAppear { AppTiming.mark("Interface drawn") }
+        .sheet(isPresented: Bindable(model).showInstallPrompt) { InstallPromptSheet() }
     }
 
     @ViewBuilder
@@ -139,6 +140,52 @@ struct RootView: View {
         case .knowledge: KnowledgeView()
         case .spells: SpellsView()
         case .engine: EngineView()
+        }
+    }
+}
+
+/// First launch with no install found: ask for the EverQuest folder before showing empty panels.
+struct InstallPromptSheet: View {
+    @Environment(AppModel.self) private var model
+    @State private var status: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Where is EverQuest?").font(.title3.weight(.semibold)).foregroundStyle(Theme.text)
+            Text("No EverQuest Legends install was found, and everything this app shows comes from the log file the game writes. It is usually inside a CrossOver bottle:")
+                .foregroundStyle(Theme.textDim)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("…/Bottles/<bottle>/drive_c/users/Public/Daybreak Game Company/Installed Games/EverQuest Legends")
+                .font(.caption.monospaced()).foregroundStyle(Theme.textFaint)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Pick that folder, its Logs folder, or one eqlog_*.txt file. In the game, type /log on.")
+                .font(.caption).foregroundStyle(Theme.textDim)
+            if let s = status { Text(s).font(.caption).foregroundStyle(Theme.orange) }
+            HStack(spacing: 8) {
+                PrefButton(title: "Choose folder…", icon: "folder", filled: true) { choose() }
+                PrefButton(title: "Try auto-detection again") {
+                    model.setInstallOverride("")
+                    if model.install == nil { status = "Still nothing found - the folder must be picked by hand." }
+                }
+                Spacer()
+                Button("Not now") { model.showInstallPrompt = false }.buttonStyle(.plain).foregroundStyle(Theme.textDim)
+            }
+        }
+        .padding(20)
+        .frame(width: 560)
+        .background(Theme.background)
+    }
+
+    private func choose() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Pick the EverQuest Legends folder, its Logs folder, or one eqlog_*.txt file"
+        panel.showsHiddenFiles = true
+        if panel.runModal() == .OK, let url = panel.url {
+            model.setInstallOverride(url.path)
+            if model.install == nil { status = "That folder holds no EverQuest Legends install - look for the path above." }
         }
     }
 }
