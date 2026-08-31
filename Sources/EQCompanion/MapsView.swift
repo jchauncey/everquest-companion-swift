@@ -546,6 +546,8 @@ private struct MapZonePicker: View {
 
     @State private var open = false
     @State private var filter = ""
+    /// The row the arrow keys are on; Return picks it. Follows the filter, never survives it.
+    @State private var highlighted = 0
 
     private func longName(_ short: ZoneShort) -> String {
         GameData.shared.zones.first { $0.short == short }?.name ?? short
@@ -580,40 +582,68 @@ private struct MapZonePicker: View {
         .buttonStyle(.plain)
         .popover(isPresented: $open, arrowEdge: .bottom) {
             VStack(alignment: .leading, spacing: 6) {
-                TextField("Find a zone\u{2026}", text: $filter).textFieldStyle(.roundedBorder)
+                TextField("Find a zone\u{2026}", text: $filter)
+                    .textFieldStyle(.roundedBorder)
+                    .onChange(of: filter) { _, _ in highlighted = 0 }
+                    .onKeyPress(.downArrow) { move(1); return .handled }
+                    .onKeyPress(.upArrow) { move(-1); return .handled }
+                    .onSubmit { pickHighlighted() }
                 if options.isEmpty {
                     Text(zones.isEmpty ? (ready ? "No map files were found." : "Looking for map files\u{2026}")
                                        : "No zone matches.")
                         .font(.caption).foregroundStyle(Theme.textFaint)
                 } else {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(options, id: \.self) { z in
-                                Button {
-                                    onPick(z)
-                                    open = false
-                                    filter = ""
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 0) {
-                                        Text(longName(z)).font(.callout).foregroundStyle(Theme.text)
-                                        Text(z).font(.caption).foregroundStyle(Theme.textFaint)
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 0) {
+                                ForEach(Array(options.enumerated()), id: \.element) { i, z in
+                                    Button {
+                                        pick(z)
+                                    } label: {
+                                        VStack(alignment: .leading, spacing: 0) {
+                                            Text(longName(z)).font(.callout).foregroundStyle(Theme.text)
+                                            Text(z).font(.caption).foregroundStyle(Theme.textFaint)
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.horizontal, 6).padding(.vertical, 3)
+                                        .background(RoundedRectangle(cornerRadius: 4)
+                                            .fill(i == highlighted ? Theme.gold.opacity(0.22)
+                                                  : z == zone ? Theme.gold.opacity(0.12) : Color.clear))
+                                        .contentShape(Rectangle())
                                     }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, 6).padding(.vertical, 3)
-                                    .background(RoundedRectangle(cornerRadius: 4)
-                                        .fill(z == zone ? Theme.gold.opacity(0.12) : Color.clear))
-                                    .contentShape(Rectangle())
+                                    .buttonStyle(.plain)
+                                    .id(z)
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
+                        .frame(height: 320)
+                        .onChange(of: highlighted) { _, i in
+                            if options.indices.contains(i) { proxy.scrollTo(options[i]) }
+                        }
                     }
-                    .frame(height: 320)
                 }
             }
             .padding(10)
             .frame(width: 280)
         }
+    }
+
+    private func move(_ d: Int) {
+        guard !options.isEmpty else { return }
+        highlighted = min(max(0, highlighted + d), options.count - 1)
+    }
+
+    /// Return in the field picks the highlighted row (the first row until the arrows move it).
+    private func pickHighlighted() {
+        guard options.indices.contains(highlighted) else { return }
+        pick(options[highlighted])
+    }
+
+    private func pick(_ z: ZoneShort) {
+        onPick(z)
+        open = false
+        filter = ""
+        highlighted = 0
     }
 }
 
