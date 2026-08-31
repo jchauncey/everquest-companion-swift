@@ -30,6 +30,13 @@ final class MapStore {
     @ObservationIgnored private var loadedKey: String?
     @ObservationIgnored private var token = 0
 
+    /// Forget the last scan so the next `scan` really walks the disk — for after a pack was
+    /// written or deleted while the app runs.
+    func invalidateScan() {
+        scannedRoot = URL(fileURLWithPath: "/nonexistent-\(token)")
+        ready = false
+    }
+
     /// Re-scan when the install root changes. A nil root is the "EverQuest folder not found"
     /// case, which is an empty list and a prose empty state — never an error dialog.
     func scan(root: URL?) async {
