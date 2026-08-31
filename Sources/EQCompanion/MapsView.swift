@@ -227,7 +227,7 @@ struct MapsView: View {
             .popover(isPresented: $annotateOpen, arrowEdge: .bottom) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Export wiki annotations").font(.callout.weight(.semibold)).foregroundStyle(Theme.text)
-                    Text("Writes one label at every mob position the wiki states, as an ordinary labels pack in this app's mappacks folder. Your existing packs are untouched; a name that is already taken is refused, not overwritten.")
+                    Text("Writes one label at every mob position the wiki states, as an ordinary labels pack folder inside your EverQuest install's maps directory. The game's own files and your existing packs are untouched; a name that is already taken is refused, not overwritten.")
                         .font(.caption).foregroundStyle(Theme.textDim)
                         .fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 6) {
@@ -597,7 +597,8 @@ struct MapsView: View {
     /// Export the wiki positions under the asked-for pack name and point the Labels layer at it.
     private func generateAnnotations() {
         do {
-            let r = try MapAnnotations.generate(named: annotateName)
+            guard let root = model.install?.root else { throw MapAnnotations.GenerateError.noInstall }
+            let r = try MapAnnotations.generate(named: annotateName, root: root)
             let id = (MapAnnotations.validName(annotateName) ?? annotateName).lowercased()
             annotateStatus = ("\(r.labels) labels across \(r.zones) zones - selected as this map's labels.", true)
             Task {

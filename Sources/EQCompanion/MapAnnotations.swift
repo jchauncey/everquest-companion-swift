@@ -12,19 +12,22 @@ enum MapAnnotations {
     /// Proof a directory is OURS to rewrite. A pack without it is somebody's data and is refused.
     nonisolated static let marker = ".eqc-generated"
 
-    nonisolated static func dir(named name: String) -> URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("EQCompanion/mappacks/\(name)", isDirectory: true)
+    /// The pack lives INSIDE the EverQuest install's own maps directory, as a subfolder — the
+    /// same place a hand-installed pack goes, so the game's files and the pack sit side by side.
+    nonisolated static func dir(named name: String, root: URL) -> URL {
+        root.appendingPathComponent("maps/\(name)", isDirectory: true)
     }
 
     struct Result { var zones = 0; var labels = 0 }
 
     enum GenerateError: LocalizedError {
         case badName
+        case noInstall
         case packExists(String)
         var errorDescription: String? {
             switch self {
             case .badName: return "Give the pack a plain name - letters, numbers, spaces, dashes."
+            case .noInstall: return "No EverQuest folder is set - point Preferences \u{2192} Game at your install first."
             case .packExists(let n): return "A map pack named \u{201C}\(n)\u{201D} already exists and was not made by this app - pick another name rather than overwrite it."
             }
         }
@@ -41,9 +44,12 @@ enum MapAnnotations {
     /// Write (or rewrite) the pack: one `<stem>_1.txt` per zone that has any placed wiki mob.
     /// Rewriting requires the marker — this app only ever replaces what it generated itself.
     @discardableResult
-    static func generate(named rawName: String = MapAnnotations.defaultPackName, into override: URL? = nil) throws -> Result {
+    static func generate(named rawName: String = MapAnnotations.defaultPackName, root: URL? = nil, into override: URL? = nil) throws -> Result {
         guard let name = validName(rawName) else { throw GenerateError.badName }
-        let dir = override ?? Self.dir(named: name)
+        let dir: URL
+        if let override { dir = override }
+        else if let root { dir = Self.dir(named: name, root: root) }
+        else { throw GenerateError.noInstall }
         let fm = FileManager.default
         if fm.fileExists(atPath: dir.path) {
             guard fm.fileExists(atPath: dir.appendingPathComponent(marker).path) else {
