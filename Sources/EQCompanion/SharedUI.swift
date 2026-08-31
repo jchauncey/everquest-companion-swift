@@ -92,17 +92,9 @@ struct RecordView: View {
                 ObjectListView(items: a)
             }
         case .object(let o):
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label(key)).font(.caption).foregroundStyle(.secondary)
-                Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 2) {
-                    ForEach(o.keys.sorted(), id: \.self) { k in
-                        GridRow {
-                            Text(label(k)).foregroundStyle(.secondary)
-                            Text(o[k]?.display ?? "")
-                        }.font(.callout)
-                    }
-                }
-            }
+            // A raw sub-object (the parser's own "stats" vector and its kin) is bookkeeping, not
+            // reading matter: folded away by default, one click to unfold.
+            CollapsedObject(title: label(key), object: o, label: label)
         case .string(let s) where s.contains("\n") || key == "statsBlock":
             VStack(alignment: .leading, spacing: 2) {
                 Text(label(key)).font(.caption).foregroundStyle(.secondary)
@@ -127,6 +119,39 @@ struct RecordView: View {
             out.append(ch)
         }
         return out.prefix(1).uppercased() + out.dropFirst()
+    }
+}
+
+/// A record's raw sub-object, collapsed by default.
+private struct CollapsedObject: View {
+    var title: String
+    var object: [String: JSONValue]
+    var label: (String) -> String
+    @State private var open = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Button { open.toggle() } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: open ? "chevron.down" : "chevron.right").font(.system(size: 9))
+                    Text(title)
+                    Text("(\(object.count))").foregroundStyle(Theme.textFaint)
+                }
+                .font(.caption).foregroundStyle(.secondary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if open {
+                Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 2) {
+                    ForEach(object.keys.sorted(), id: \.self) { k in
+                        GridRow {
+                            Text(label(k)).foregroundStyle(.secondary)
+                            Text(object[k]?.display ?? "")
+                        }.font(.callout)
+                    }
+                }
+            }
+        }
     }
 }
 
