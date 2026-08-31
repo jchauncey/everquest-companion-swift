@@ -31,6 +31,13 @@ final class MapJump {
         UserDefaults.standard.set(Tab.maps.rawValue, forKey: "eq.tab")
     }
 
+    /// Jump to a zone stated by its LONG name (a knowledge record's "zone" cell).
+    func showZone(named long: String) {
+        guard let short = GameData.shared.zones.first(where: { $0.name.caseInsensitiveCompare(long) == .orderedSame })?.short
+        else { return }
+        showZone(short)
+    }
+
     /// Jump to a zone alone — the map opens it and nothing is selected.
     func showZone(_ zone: ZoneShort) {
         seq += 1

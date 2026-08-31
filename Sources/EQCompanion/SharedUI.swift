@@ -144,12 +144,43 @@ struct ObjectListView: View {
                 ForEach(Array(items.prefix(200).enumerated()), id: \.offset) { _, it in
                     GridRow {
                         ForEach(keys, id: \.self) { k in
-                            Text(cell(it[k])).font(.callout).lineLimit(1)
+                            cellView(k, it)
                         }
                     }
                 }
             }
         }
+    }
+
+    /// A mob, zone or item cell is a door to its own surface; everything else is text. The keys
+    /// are the knowledge records' own column names (dropsFrom: mob/zone; drop tables: item).
+    @ViewBuilder
+    private func cellView(_ key: String, _ row: JSONValue) -> some View {
+        let text = cell(row[key])
+        switch key {
+        case "mob" where !text.isEmpty:
+            linkCell(text) {
+                let zones = [row["zone"], row["eraZones"]].flatMap { v -> [String] in
+                    if let s = v.string { return [s] }
+                    return (v.array ?? []).compactMap(\.string)
+                }
+                MapJump.shared.show(mob: text, zonesLongNames: zones)
+            }
+        case "zone" where !text.isEmpty:
+            linkCell(text) { MapJump.shared.showZone(named: text) }
+        case "item" where !text.isEmpty:
+            linkCell(text) { ItemJump.shared.show(name: text) }
+        default:
+            Text(text).font(.callout).lineLimit(1)
+        }
+    }
+
+    private func linkCell(_ text: String, _ act: @escaping () -> Void) -> some View {
+        Button(action: act) {
+            Text(text).font(.callout).foregroundStyle(Theme.gold).underline().lineLimit(1)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func cell(_ v: JSONValue) -> String {
