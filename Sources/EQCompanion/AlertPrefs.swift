@@ -40,21 +40,27 @@ let audioDistinctCap = 8
 /// The coalescing decision, pure so it can be reasoned about without a clock. First arrival owns
 /// the window; a suppressed firing never extends it.
 struct AudioWindow {
-    private var openedAt: Int64 = .min
+    /// NIL, not a sentinel. "No window has opened yet" was `Int64.min`, and the first thing the
+    /// window does with it is `now - openedAt` - which for a wall-clock millisecond `now` overflows
+    /// Int64 and traps. Every alert this app ever played went through that subtraction, so the
+    /// first sound after launch crashed it outright (`AlertPrefs.swift:50`, in the wild).
+    private var openedAt: Int64?
     private var heard: Set<String> = []
 
     /// `identity` is what the firing would be HEARD as (the sound key plus the spoken words).
     /// Returns true when it should play.
     mutating func admit(_ identity: String, now: Int64, bypass: Bool) -> Bool {
         if bypass { return true }
-        if now - openedAt > audioCoalesceMs {
-            openedAt = now
-            heard = [identity]
+        // Inside a window that is still open: coalesce. Anything else - no window yet, or the last
+        // one has lapsed - opens a fresh one, and the arrival that opens it owns it.
+        if let openedAt, now - openedAt <= audioCoalesceMs {
+            if heard.contains(identity) { return false }
+            if heard.count >= audioDistinctCap { return false }
+            heard.insert(identity)
             return true
         }
-        if heard.contains(identity) { return false }
-        if heard.count >= audioDistinctCap { return false }
-        heard.insert(identity)
+        openedAt = now
+        heard = [identity]
         return true
     }
 }

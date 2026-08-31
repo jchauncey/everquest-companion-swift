@@ -23,6 +23,10 @@ import Foundation
 struct MobPin: Sendable, Equatable {
     var x: Double
     var y: Double
+    /// The page's own elevation, when it stated one — 2% of positions do. Nil is NOT zero: a label
+    /// written at zero in a dungeon that lives below it is one the game will not draw, so a nil
+    /// here is answered from the map's own geometry rather than filled in with a number.
+    var z: Double?
     /// The page's OWN percentage, verbatim — never rounded into "likely" or "rare".
     var pct: Double?
 }
@@ -71,8 +75,11 @@ enum MapPaneRows {
     static func pins(_ mob: GameData.Mob) -> [MobPin] {
         mob.loc.compactMap { l in
             guard let ns = l["ns"].double, let ew = l["ew"].double else { return nil }
-            let p = MapGeo.mapFromLoc(EqLoc(ns: ns, ew: ew, z: l["z"].double ?? 0))
-            return MobPin(x: p.x, y: p.y, pct: l["pct"].double)
+            let stated = l["z"].double
+            let p = MapGeo.mapFromLoc(EqLoc(ns: ns, ew: ew, z: stated ?? 0))
+            // The projection's z is the page's own when it gave one, and meaningless when it did
+            // not - so an unstated elevation stays absent rather than becoming a zero.
+            return MobPin(x: p.x, y: p.y, z: stated == nil ? nil : p.z, pct: l["pct"].double)
         }
     }
 

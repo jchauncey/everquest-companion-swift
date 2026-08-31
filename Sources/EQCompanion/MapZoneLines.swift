@@ -19,9 +19,14 @@ import Foundation
 
 enum MapZoneLines {
     /// One exit: a position in map coordinates and the zone it leads to, in the catalog's spelling.
+    ///
+    /// `z` is the source pack's own elevation, carried through rather than flattened. The game
+    /// draws map labels by height, so a door written at z=0 in a dungeon that lives at z=-200 is a
+    /// door the player never sees.
     struct Marker: Equatable {
         var x: Double
         var y: Double
+        var z: Double
         var zone: String
     }
 
@@ -125,7 +130,9 @@ enum MapZoneLines {
                         && abs($0.x - point.x) <= sameDoorRadius
                         && abs($0.y - point.y) <= sameDoorRadius
                 }
-                if !duplicate { out.append(Marker(x: point.x, y: point.y, zone: zoneName)) }
+                if !duplicate {
+                    out.append(Marker(x: point.x, y: point.y, z: point.z, zone: zoneName))
+                }
             }
         }
         return out

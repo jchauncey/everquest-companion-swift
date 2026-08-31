@@ -80,26 +80,37 @@ enum MapAnnotations {
         var out = Result()
         for z in GameData.shared.zones {
             var lines: [String] = []
-            for row in MapPaneRows.mobRows(zoneName: z.name) where row.kind == .mob && filter.keeps(row.name) {
+            let mobs = MapPaneRows.mobRows(zoneName: z.name).filter { $0.kind == .mob && filter.keeps($0.name) }
+            let placed = mobs.contains { !$0.pins.isEmpty }
+            // The zone's own geometry, read only when there is a pin that needs a height off it.
+            // See `MapElevation`: the wiki states an elevation for 2% of positions, and writing
+            // zero for the other 98% put every label above the dungeon, where the game hid them.
+            let floors = placed
+                ? MapFile.load(packs, zone: z.short, prefs: MapPackPrefs()).map { MapElevation($0.lines) }
+                : nil
+            for row in mobs {
                 for pin in row.pins {
                     // The game's label convention: underscores, shown as spaces. A strong red:
                     // readable on the game's parchment map AND on the companion's dark one —
                     // gold disappears into parchment.
                     let label = row.name.replacingOccurrences(of: ",", with: " ")
                         .replacingOccurrences(of: " ", with: "_")
-                    lines.append(String(format: "P %.4f, %.4f, 0.0000, 200, 40, 40, 2, %@",
-                                        pin.x, pin.y, label))
+                    let height = pin.z ?? floors?.z(x: pin.x, y: pin.y) ?? 0
+                    lines.append(String(format: "P %.4f, %.4f, %.4f, 200, 40, 40, 2, %@",
+                                        pin.x, pin.y, height, label))
                 }
             }
             // The exits, carried over from the packs that state them, in a strong blue and a size
             // up: the way out is not another mob, and it should not read as one. Written even when
             // the zone has no wiki pin at all — a map with only the exits marked is still worth
-            // having, and losing them is the whole reason this is here.
+            // having, and losing them is the whole reason this is here. Their height is the source
+            // pack's own, which is a stated fact rather than anything we worked out.
             if filter.zoneLines {
                 for m in MapZoneLines.markers(zone: z.short, packs: packs, excluding: name.lowercased()) {
                     let label = "to_" + m.zone.replacingOccurrences(of: ",", with: " ")
                         .replacingOccurrences(of: " ", with: "_")
-                    lines.append(String(format: "P %.4f, %.4f, 0.0000, 30, 90, 220, 3, %@", m.x, m.y, label))
+                    lines.append(String(format: "P %.4f, %.4f, %.4f, 30, 90, 220, 3, %@",
+                                        m.x, m.y, m.z, label))
                     out.zoneLines += 1
                 }
             }
