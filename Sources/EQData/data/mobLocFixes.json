@@ -1,0 +1,11 @@
+{
+  "note": "OURS, not scraped. Every other file in this directory is a verbatim capture of eqlwiki.com; this one corrects the handful of mob pages whose stated |location is provably wrong, so the map pins and the generated map pack put the mob where it actually spawns. A fix carries `was` — the value the corpus is expected to state — and is APPLIED ONLY WHEN THE CORPUS STILL SAYS THAT. So a re-scrape that picks up a wiki fix (or any other new value) silently retires the correction instead of overriding fresh data with a stale guess. Cite the evidence in `why`; a fix nobody can check is a guess wearing a fact's clothes.",
+  "fixes": [
+    {
+      "page": "A ghoul sage",
+      "was": { "ns": 550, "ew": -220 },
+      "loc": [{ "ns": 550, "ew": -720, "pct": 34 }],
+      "why": "The wiki page states 34% @ (550, -220), which is outside the zone's drawn geometry. The Scribe & Sage room is labelled at map (727.2, -515.4) in the Good's Maps gukbottom pack, i.e. /loc (515, -727), and a ghoul scribe's own page states (538, -711) there. The sage's north/south already agrees with the room; its east/west is a digit off - -220 for -720, which lands beside the scribe."
+    }
+  ]
+}

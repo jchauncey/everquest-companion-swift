@@ -46,6 +46,7 @@ struct MapsView: View {
     @State private var annotateName = MapAnnotations.defaultPackName
     @State private var annotateStatus: (String, Bool)?
     @State private var annotateCommon = false
+    @State private var annotateZoneLines = true
 
     static let paneKey = "eq.maps.pane"
     /// Which pack drew each layer. Geometry and labels routinely come from DIFFERENT packs, and
@@ -98,7 +99,7 @@ struct MapsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             header
-            MapFlow(spacing: 8, lineSpacing: 8) { toolbar }
+            FlowRow(spacing: 8, lineSpacing: 8) { toolbar }
             HStack(alignment: .top, spacing: 12) {
                 surface
                 if paneOpen { pane.frame(width: 288) }
@@ -235,6 +236,13 @@ struct MapsView: View {
                         .toggleStyle(.checkbox).font(.caption).foregroundStyle(Theme.textDim)
                     Text(annotateCommon ? "Every mob position the wiki states." : "Named and rare mobs only - the capitalized names.")
                         .font(.caption).foregroundStyle(Theme.textFaint)
+                    Toggle("Keep the zone exits", isOn: $annotateZoneLines)
+                        .toggleStyle(.checkbox).font(.caption).foregroundStyle(Theme.textDim)
+                    Text(annotateZoneLines
+                         ? "Every \u{201C}to <zone>\u{201D} marker your installed packs state is carried into this one, in blue - the labels layer comes from a single pack, so without them this pack would cost you the way out."
+                         : "Mob pins only. Selecting this pack for Labels will hide the exits your other packs mark.")
+                        .font(.caption).foregroundStyle(annotateZoneLines ? Theme.textFaint : Theme.orange)
+                        .fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 6) {
                         TextField("Pack name", text: $annotateName).textFieldStyle(.roundedBorder).frame(width: 180)
                         Button("Generate") { generateAnnotations() }.buttonStyle(OutlineButtonStyle())
@@ -266,10 +274,10 @@ struct MapsView: View {
                 Button("Level \(i + 1) of \(bands.count)  ·  \(b.label)") { floor = i }
             }
         } label: {
-            Text(floor.map { "Level \($0 + 1) of \(bands.count)" } ?? "All levels").font(.caption)
+            Text(floor.map { "Level \($0 + 1) of \(bands.count)" } ?? "All levels")
         }
-        .menuStyle(.borderlessButton)
-        .frame(width: 150)
+        .menuStyle(.automatic)
+        .fixedSize()
         .disabled(bands.count < 2)
         .help(bands.count < 2 ? "This map has one elevation." : "Draw only one elevation band.")
     }
@@ -604,9 +612,11 @@ struct MapsView: View {
         do {
             guard let root = model.install?.root else { throw MapAnnotations.GenerateError.noInstall }
             let r = try MapAnnotations.generate(named: annotateName, root: root,
-                                                filter: .init(common: annotateCommon))
+                                                filter: .init(common: annotateCommon, zoneLines: annotateZoneLines),
+                                                packs: store.packIndexes)
             let id = (MapAnnotations.validName(annotateName) ?? annotateName).lowercased()
-            annotateStatus = ("\(r.labels) labels across \(r.zones) zones - selected as this map's labels.", true)
+            let exits = r.zoneLines > 0 ? " (\(r.zoneLines) of them zone exits)" : ""
+            annotateStatus = ("\(r.labels) labels across \(r.zones) zones\(exits) - selected as this map's labels.", true)
             Task {
                 store.invalidateScan()
                 await store.scan(root: model.install?.root)
@@ -782,10 +792,9 @@ private struct MapPackMenu: View {
             }
         } label: {
             Text("\(label): \(value.flatMap { id in packs.first { $0.id == id }?.name } ?? "Auto")")
-                .font(.caption)
         }
-        .menuStyle(.borderlessButton)
-        .frame(width: 190)
+        .menuStyle(.automatic)
+        .fixedSize()
         .help(label == "Geometry"
               ? "Which pack draws the walls. Auto prefers the game's own files."
               : "Which pack supplies the labels and the legend. Auto prefers an installed pack over the game's own thin set.")
@@ -819,65 +828,5 @@ private struct MapLayerToggle: View {
         }
         .background(RoundedRectangle(cornerRadius: 6).fill(Theme.paperRaised))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.border))
-    }
-}
-
-// MARK: - A wrapping row
-
-/// The toolbar is a row that must WRAP rather than clip: every control in it is how you get out
-/// of the state you are in, so none of them may fall off the end at a narrow window.
-struct MapFlow: Layout {
-    var spacing: CGFloat = 8
-    var lineSpacing: CGFloat = 8
-
-    private func rows(_ sizes: [CGSize], width: CGFloat) -> [[Int]] {
-        var out: [[Int]] = [[]]
-        var x: CGFloat = 0
-        for (i, s) in sizes.enumerated() {
-            let w = s.width
-            if !out[out.count - 1].isEmpty && x + spacing + w > width {
-                out.append([i])
-                x = w
-            } else {
-                if !out[out.count - 1].isEmpty { x += spacing }
-                out[out.count - 1].append(i)
-                x += w
-            }
-        }
-        return out
-    }
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
-        // An unbounded proposal (a split view probing) must not be echoed back as our width —
-        // an infinite answer wrecks every ancestor. Answer with the one-line width instead.
-        // Nil ("what is your ideal?") gets the widest child — the flow can wrap to that; a flow
-        // whose ideal is one unwrapped line makes every ancestor want to be that wide.
-        let width: CGFloat
-        if let w = proposal.width, w.isFinite { width = w }
-        else if proposal.width == nil { width = sizes.map(\.width).max() ?? 0 }
-        else { width = sizes.reduce(CGFloat(0)) { $0 + $1.width } + spacing * CGFloat(max(0, sizes.count - 1)) }
-        let lines = rows(sizes, width: width)
-        var h: CGFloat = 0
-        for (i, line) in lines.enumerated() {
-            let lh = line.map { sizes[$0].height }.max() ?? 0
-            h += lh + (i > 0 ? lineSpacing : 0)
-        }
-        return CGSize(width: width, height: h)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
-        var y = bounds.minY
-        for line in rows(sizes, width: bounds.width) {
-            let lh = line.map { sizes[$0].height }.max() ?? 0
-            var x = bounds.minX
-            for i in line {
-                subviews[i].place(at: CGPoint(x: x, y: y + (lh - sizes[i].height) / 2),
-                                  proposal: ProposedViewSize(sizes[i]))
-                x += sizes[i].width + spacing
-            }
-            y += lh + lineSpacing
-        }
     }
 }

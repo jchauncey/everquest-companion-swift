@@ -101,6 +101,13 @@ final class GameData {
             key = String(key[..<r.lowerBound])
             v = items[key]
         }
+        // A leading article the naming page dropped or added (`Dark Reaver` for `A Dark Reaver`).
+        if v == nil {
+            for alt in NameArticles.variants(of: name) {
+                let k = Self.nameKey(alt)
+                if let hit = items[k] { key = k; v = hit; break }
+            }
+        }
         guard let v else { return nil }
         return item(key: key, v)
     }
@@ -136,15 +143,22 @@ final class GameData {
         var drops: [String]
         var loc: [JSONValue]
         var raw: JSONValue
+        /// Why this row's `loc` is ours and not the wiki's, when `mobLocFixes.json` corrected it.
+        var locFix: String?
     }
 
     private var mobsCache: [Mob]?
     var mobs: [Mob] {
         if let m = mobsCache { return m }
+        let fixes = MobLocFixes.parse(load(roots.data, "mobLocFixes.json"))
         let m = (load(roots.eqlegends, "mobs.json")["mobs"].array ?? []).map { v in
-            Mob(name: v["name"].string ?? "", page: v["page"].string ?? "", level: v["level"].string ?? "",
-                zones: (v["zones"].array ?? []).compactMap(\.string), drops: (v["drops"].array ?? []).compactMap(\.string),
-                loc: v["loc"].array ?? [], raw: v)
+            let page = v["page"].string ?? ""
+            let wiki = v["loc"].array ?? []
+            // A fix whose guard no longer holds is DEAD, not overriding: the corpus moved on.
+            let fix = fixes[page].flatMap { MobLocFixes.guardHolds($0, corpus: wiki) ? $0 : nil }
+            return Mob(name: v["name"].string ?? "", page: page, level: v["level"].string ?? "",
+                       zones: (v["zones"].array ?? []).compactMap(\.string), drops: (v["drops"].array ?? []).compactMap(\.string),
+                       loc: fix?.loc ?? wiki, raw: v, locFix: fix?.why)
         }
         mobsCache = m
         return m

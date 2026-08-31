@@ -18,7 +18,7 @@ enum MapAnnotations {
         root.appendingPathComponent("maps/\(name)", isDirectory: true)
     }
 
-    struct Result { var zones = 0; var labels = 0 }
+    struct Result { var zones = 0; var labels = 0; var zoneLines = 0 }
 
     /// What to write. The wiki's own naming convention is the classifier: a NAMED (or rare) mob
     /// is capitalized ("Skeleton Lrodd"); a common spawn is lowercase ("a froglok sentry").
@@ -27,6 +27,9 @@ enum MapAnnotations {
         var named = true
         /// The fluff — every lowercase-named common spawn.
         var common = false
+        /// Carry the installed packs' `to_<Zone>` exits into ours, so switching the Labels layer to
+        /// this pack does not cost the player the way out. See `MapZoneLines`.
+        var zoneLines = true
 
         func keeps(_ name: String) -> Bool {
             let isCommon = name.first.map { $0.isLowercase } ?? true
@@ -58,7 +61,7 @@ enum MapAnnotations {
     /// Write (or rewrite) the pack: one `<stem>_1.txt` per zone that has any placed wiki mob.
     /// Rewriting requires the marker — this app only ever replaces what it generated itself.
     @discardableResult
-    static func generate(named rawName: String = MapAnnotations.defaultPackName, root: URL? = nil, into override: URL? = nil, filter: Filter = Filter()) throws -> Result {
+    static func generate(named rawName: String = MapAnnotations.defaultPackName, root: URL? = nil, into override: URL? = nil, filter: Filter = Filter(), packs: [PackIndex] = []) throws -> Result {
         guard let name = validName(rawName) else { throw GenerateError.badName }
         let dir: URL
         if let override { dir = override }
@@ -86,6 +89,18 @@ enum MapAnnotations {
                         .replacingOccurrences(of: " ", with: "_")
                     lines.append(String(format: "P %.4f, %.4f, 0.0000, 200, 40, 40, 2, %@",
                                         pin.x, pin.y, label))
+                }
+            }
+            // The exits, carried over from the packs that state them, in a strong blue and a size
+            // up: the way out is not another mob, and it should not read as one. Written even when
+            // the zone has no wiki pin at all — a map with only the exits marked is still worth
+            // having, and losing them is the whole reason this is here.
+            if filter.zoneLines {
+                for m in MapZoneLines.markers(zone: z.short, packs: packs, excluding: name.lowercased()) {
+                    let label = "to_" + m.zone.replacingOccurrences(of: ",", with: " ")
+                        .replacingOccurrences(of: " ", with: "_")
+                    lines.append(String(format: "P %.4f, %.4f, 0.0000, 30, 90, 220, 3, %@", m.x, m.y, label))
+                    out.zoneLines += 1
                 }
             }
             guard !lines.isEmpty else { continue }

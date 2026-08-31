@@ -39,6 +39,8 @@ struct MapPaneRow: Identifiable, Equatable {
     var zoneCount: Int
     /// The page stated a position but names several zones, so it cannot be attributed here.
     var unattributable: Bool
+    /// Set when `mobLocFixes.json` replaced the wiki's position: the reason, for the row's note.
+    var locFix: String?
     var searchKey: String
     var point: MapPoint?
 
@@ -56,6 +58,7 @@ struct MapPaneRow: Identifiable, Equatable {
         guard kind == .mob else { return nil }
         if unattributable { return "position stated, but the page lists \(zoneCount) zones" }
         if pins.isEmpty { return "no location on the wiki page" }
+        if locFix != nil { return pins.count > 1 ? "\(pins.count) spawn points \u{00B7} corrected" : "position corrected" }
         return pins.count > 1 ? "\(pins.count) spawn points" : nil
     }
 }
@@ -108,6 +111,7 @@ enum MapPaneRows {
                               pins: ambiguous ? [] : all,
                               zoneCount: zoneCount,
                               unattributable: ambiguous && !all.isEmpty,
+                              locFix: ambiguous ? nil : m.locFix,
                               searchKey: "\(m.name) \(m.level)".lowercased(),
                               point: nil)
         }

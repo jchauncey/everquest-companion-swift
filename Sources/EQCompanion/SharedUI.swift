@@ -11,6 +11,8 @@ struct KnowledgeCard: View {
     var name: String
     @State private var result: JSONValue = .null
     @State private var error: String?
+    /// The spelling that actually answered, when it was not the one asked for.
+    @State private var resolved: String?
 
     var body: some View {
         ScrollView {
@@ -25,6 +27,10 @@ struct KnowledgeCard: View {
                     Text(e).foregroundStyle(.red).font(.caption)
                 } else if result.isNull {
                     ProgressView().controlSize(.small)
+                } else if let r = resolved {
+                    // Say whose spelling this record is: the page found is not the name clicked.
+                    Text("Listed on the wiki as \u{201C}\(r)\u{201D}.").font(.caption).foregroundStyle(.secondary)
+                    RecordView(record: result["record"])
                 } else if result["found"].bool == false {
                     Text("Nothing on record for this \(domain).").foregroundStyle(.secondary)
                     if !result["record"].isNull { RecordView(record: result["record"]) }
@@ -41,6 +47,7 @@ struct KnowledgeCard: View {
     private func load() async {
         result = .null
         error = nil
+        resolved = nil
         guard model.client.isReady else { return }
         let op: String
         switch domain {
@@ -49,8 +56,18 @@ struct KnowledgeCard: View {
         case "spell": op = Op.knowledgeSpell
         default: error = "No card for a \(domain)."; return
         }
-        do { result = try await model.client.request(op, ["name": .string(name)]) }
-        catch { self.error = "\(error)" }
+        do {
+            var answer = try await model.client.request(op, ["name": .string(name)])
+            // A page the naming page spelled with (or without) a leading article. The alternative
+            // is not guessed at the engine: the committed corpus is asked which spelling it HAS,
+            // and only a spelling it actually carries is requested.
+            if answer["found"].bool == false,
+               let alt = GameData.shared.articleVariant(domain: domain, of: name) {
+                let second = try await model.client.request(op, ["name": .string(alt)])
+                if second["found"].bool != false { answer = second; resolved = alt }
+            }
+            result = answer
+        } catch { self.error = "\(error)" }
     }
 }
 
@@ -100,9 +117,8 @@ struct RecordView: View {
                 Text(label(key)).font(.caption).foregroundStyle(.secondary)
                 // The wiki text separates every line with a blank one; squeezed here, the block
                 // reads like the item window instead of a double-spaced page.
-                Text(s.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
-                        .filter { !$0.isEmpty }.joined(separator: "\n"))
-                    .font(.callout.monospaced()).textSelection(.enabled)
+                WikiProse(lines: s.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+                            .filter { !$0.isEmpty })
             }
         default:
             HStack(alignment: .firstTextBaseline) {
@@ -119,6 +135,122 @@ struct RecordView: View {
             out.append(ch)
         }
         return out.prefix(1).uppercased() + out.dropFirst()
+    }
+}
+
+/// A row of controls that WRAPS rather than clipping.
+///
+/// Used by the Maps toolbar and the Gear filters, for the same reason in both: every control in
+/// such a row is how you get out of the state you are in, so none of them may fall off the end at a
+/// narrow window.
+///
+/// The `nil` proposal answer is the load-bearing part. A plain `HStack` reports its ideal width as
+/// the whole unwrapped line, and an ancestor sized by that ideal becomes wider than the pane it
+/// sits in - which does not clip, it CENTRES, dragging every sibling left. That is how the gear
+/// filters, off the right edge of a narrow window, pushed the table underneath the sidebar and cut
+/// the item names in half. Answering with the widest single child instead says "I can be as narrow
+/// as my biggest control", and the row wraps to fit rather than shoving its neighbours aside.
+struct FlowRow: Layout {
+    var spacing: CGFloat = 8
+    var lineSpacing: CGFloat = 8
+
+    private func rows(_ sizes: [CGSize], width: CGFloat) -> [[Int]] {
+        var out: [[Int]] = [[]]
+        var x: CGFloat = 0
+        for (i, s) in sizes.enumerated() {
+            let w = s.width
+            if !out[out.count - 1].isEmpty && x + spacing + w > width {
+                out.append([i])
+                x = w
+            } else {
+                if !out[out.count - 1].isEmpty { x += spacing }
+                out[out.count - 1].append(i)
+                x += w
+            }
+        }
+        return out
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        // An unbounded proposal (a split view probing) must not be echoed back as our width —
+        // an infinite answer wrecks every ancestor. Answer with the one-line width instead.
+        // Nil ("what is your ideal?") gets the widest child — the flow can wrap to that; a flow
+        // whose ideal is one unwrapped line makes every ancestor want to be that wide.
+        let width: CGFloat
+        if let w = proposal.width, w.isFinite { width = w }
+        else if proposal.width == nil { width = sizes.map(\.width).max() ?? 0 }
+        else { width = sizes.reduce(CGFloat(0)) { $0 + $1.width } + spacing * CGFloat(max(0, sizes.count - 1)) }
+        let lines = rows(sizes, width: width)
+        var h: CGFloat = 0
+        for (i, line) in lines.enumerated() {
+            let lh = line.map { sizes[$0].height }.max() ?? 0
+            h += lh + (i > 0 ? lineSpacing : 0)
+        }
+        return CGSize(width: width, height: h)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        var y = bounds.minY
+        for line in rows(sizes, width: bounds.width) {
+            let lh = line.map { sizes[$0].height }.max() ?? 0
+            var x = bounds.minX
+            for i in line {
+                subviews[i].place(at: CGPoint(x: x, y: y + (lh - sizes[i].height) / 2),
+                                  proposal: ProposedViewSize(sizes[i]))
+                x += sizes[i].width + spacing
+            }
+            y += lh + lineSpacing
+        }
+    }
+}
+
+/// Where a wiki link in a record's prose goes. A surface that can host a spell card provides this;
+/// where nobody can (a bare list, a tooltip), the link renders as plain text rather than as a
+/// button that would do nothing.
+struct OpenSpellKey: EnvironmentKey {
+    static let defaultValue: ((String) -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    var openSpell: ((String) -> Void)? {
+        get { self[OpenSpellKey.self] }
+        set { self[OpenSpellKey.self] = newValue }
+    }
+}
+
+/// The wiki's own prose, with its markup interpreted at the last moment: `[[Soul Leech|…]]` reads
+/// as "Soul Leech" and opens the spell when there is somewhere to open it.
+struct WikiProse: View {
+    var lines: [String]
+    @Environment(\.openSpell) private var openSpell
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                if WikiMarkup.hasMarkup(line) {
+                    // A line with markup is laid out run by run, so the link can be a button. It
+                    // wraps at the run boundary rather than mid-word, which the Effect line needs.
+                    FlowRow(spacing: 0, lineSpacing: 1) {
+                        ForEach(Array(WikiMarkup.runs(line).enumerated()), id: \.offset) { _, run in
+                            if let target = run.link, let open = openSpell {
+                                Button { open(target) } label: {
+                                    Text(run.text).font(.callout.monospaced())
+                                        .foregroundStyle(Theme.gold).underline()
+                                }
+                                .buttonStyle(.plain)
+                                .help("What \(target) does")
+                            } else {
+                                Text(run.text).font(.callout.monospaced()).textSelection(.enabled)
+                            }
+                        }
+                    }
+                } else {
+                    Text(line).font(.callout.monospaced()).textSelection(.enabled)
+                }
+            }
+        }
     }
 }
 

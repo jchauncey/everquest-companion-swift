@@ -23,6 +23,9 @@ final class MapStore {
     private(set) var loading = false
 
     @ObservationIgnored private var indexes: [PackIndex] = []
+    /// The scanned packs WITH their file indexes — what the annotation generator reads the
+    /// installed `to_<Zone>` exits out of.
+    var packIndexes: [PackIndex] { indexes }
     @ObservationIgnored private var scannedRoot: URL?
     /// Insertion-ordered = LRU. Worst case ~1 MB each, so a handful is a few MB.
     @ObservationIgnored private var cache: [(key: String, data: MapData)] = []

@@ -14,32 +14,60 @@ struct ItemCardView: View {
     @State private var index = GearIndex.shared
     @State private var tier = 0
     @State private var fraction = 0
+    /// The effect the player clicked in the stats block, shown in place with a way back.
+    @State private var spell: String?
 
     private var state: ItemUpgradeState { ItemUpgradeState(full: tier, fraction: fraction).normalized }
 
     private var row: GearRow? {
-        index.rows.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+        func exact(_ n: String) -> GearRow? {
+            index.rows.first { $0.name.caseInsensitiveCompare(n) == .orderedSame }
+        }
+        // The article seam again: the slider must open on the same item the record below it shows.
+        return exact(name)
+            ?? NameArticles.variants(of: name).lazy.compactMap(exact).first
             ?? index.rows.first { $0.name.lowercased().hasPrefix(name.lowercased()) }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                if let onBack {
-                    Button { onBack() } label: {
-                        HStack(spacing: 3) { Image(systemName: "chevron.left"); Text("Back") }.font(.caption)
+            if let spell {
+                // The effect's own card, reached from the stats block. Back returns to the item -
+                // the same one-level swap the mob card uses for a drop.
+                HStack(spacing: 8) {
+                    Button { self.spell = nil } label: {
+                        HStack(spacing: 3) { Image(systemName: "chevron.left"); Text(name).lineLimit(1) }
+                            .font(.caption)
                     }
                     .buttonStyle(.plain).foregroundStyle(Theme.gold)
+                    Spacer(minLength: 4)
+                    if let onClose { Button("Close") { onClose() }.buttonStyle(OutlineButtonStyle()) }
                 }
-                Text(name).font(.headline).foregroundStyle(Theme.text).lineLimit(1)
-                Spacer(minLength: 4)
-                if let onClose { Button("Close") { onClose() }.buttonStyle(OutlineButtonStyle()) }
+                KnowledgeCard(domain: "spell", name: spell)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                itemBody
             }
-            if let r = row { sliderSection(r) }
-            KnowledgeCard(domain: "item", name: name)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .onAppear { index.start() }
         }
+    }
+
+    @ViewBuilder private var itemBody: some View {
+        HStack(spacing: 8) {
+            if let onBack {
+                Button { onBack() } label: {
+                    HStack(spacing: 3) { Image(systemName: "chevron.left"); Text("Back") }.font(.caption)
+                }
+                .buttonStyle(.plain).foregroundStyle(Theme.gold)
+            }
+            Text(name).font(.headline).foregroundStyle(Theme.text).lineLimit(1)
+            Spacer(minLength: 4)
+            if let onClose { Button("Close") { onClose() }.buttonStyle(OutlineButtonStyle()) }
+        }
+        if let r = row { sliderSection(r) }
+        KnowledgeCard(domain: "item", name: name)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .environment(\.openSpell) { spell = $0 }
+            .onAppear { index.start() }
     }
 
     @ViewBuilder private func sliderSection(_ r: GearRow) -> some View {

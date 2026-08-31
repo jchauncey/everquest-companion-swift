@@ -38,6 +38,18 @@ let gearStatKeys: [String] = [
 
 private let gearStatKeySet = Set(gearStatKeys)
 
+/// Keys the table may draw as a numeric column: the corpus's own stats, plus the ratio it computes.
+/// A sort key outside this set names a TEXT column and must never be mistaken for a stat.
+let gearNumericColumnKeys: Set<String> = gearStatKeySet.union(["RATIO"])
+
+/// The columns only a weapon fills in. Measured against the corpus: 86% of PRIMARY, 79% of AMMO,
+/// 69% of RANGE and 64% of SECONDARY pages state a damage, against 0% of every armour slot — so on
+/// an armour-only filter these three are a screenful of blank cells and a ratio that sorts nothing.
+let gearWeaponColumnKeys: [String] = ["DMG", "DELAY", "RATIO"]
+
+/// The slots whose pages state those columns.
+let weaponEquipSlots: Set<String> = ["PRIMARY", "SECONDARY", "RANGE", "AMMO"]
+
 /// Percent-valued keys — a display concern, and the reason a cell can read `41%`.
 let gearPercentStatKeys: Set<String> = ["HASTE"]
 
@@ -364,6 +376,10 @@ struct GearCorpus: Sendable {
     var scrapedAt: String?
     /// every donor row — one per (item, effect, socket) — for the Exaltations tab
     var donors: [DonorRow] = []
+    /// Every zone any item in the corpus actually drops in, ascending. The Zones picker lists these
+    /// rather than the whole 128-zone catalog: a zone nothing drops in is a filter that can only
+    /// ever empty the table.
+    var dropZones: [String] = []
 }
 
 /// One extractable effect on one item: the Exaltations tab's unit of work.
@@ -552,6 +568,8 @@ final class GearIndex {
         donors.sort { $0.name < $1.name }
         out.rows = rows
         out.donors = donors
+        out.dropZones = Set(rows.flatMap { $0.drops.map(\.zone) })
+            .subtracting([""]).sorted()
         out.byKey = Dictionary(rows.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         return out
     }

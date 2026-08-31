@@ -79,7 +79,7 @@ struct SkyQuestCard: View {
     }
 
     private var chips: some View {
-        FlowRow(spacing: 4) {
+        FlowRow(spacing: 4, lineSpacing: 4) {
             ForEach(q.items.sorted { store.isItemFavorite($0.name) && !store.isItemFavorite($1.name) }) { it in
                 itemChip(it)
             }
@@ -150,7 +150,7 @@ struct SkyQuestCard: View {
             ForEach(shared) { si in
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(si.name).font(.caption.weight(.semibold)).frame(width: 150, alignment: .leading)
-                    FlowRow(spacing: 4) {
+                    FlowRow(spacing: 4, lineSpacing: 4) {
                         ForEach(si.quests) { sq in
                             Button { store.revealQuest(sq.name) } label: {
                                 Chip(text: store.ambiguousNames.contains(sq.name) ? "\(sq.className) · \(sq.name)" : sq.name,
@@ -252,34 +252,5 @@ struct SkyHaveCell: View {
         let t = text.trimmingCharacters(in: .whitespaces)
         if let n = Int(t), n >= 0 { store.setItemCount(it.name, n) }
         editing = false
-    }
-}
-
-/// A wrapping row of chips. SwiftUI has no flow layout of its own before it is worth the ceremony;
-/// this is the smallest one that lays chips left to right and wraps.
-struct FlowRow: Layout {
-    var spacing: CGFloat = 4
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = proposal.width ?? 600
-        var x: CGFloat = 0, y: CGFloat = 0, lineHeight: CGFloat = 0
-        for s in subviews {
-            let size = s.sizeThatFits(.unspecified)
-            if x > 0, x + size.width > width { x = 0; y += lineHeight + spacing; lineHeight = 0 }
-            x += size.width + spacing
-            lineHeight = max(lineHeight, size.height)
-        }
-        return CGSize(width: width, height: y + lineHeight)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var x = bounds.minX, y = bounds.minY, lineHeight: CGFloat = 0
-        for s in subviews {
-            let size = s.sizeThatFits(.unspecified)
-            if x > bounds.minX, x + size.width > bounds.maxX { x = bounds.minX; y += lineHeight + spacing; lineHeight = 0 }
-            s.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
-            x += size.width + spacing
-            lineHeight = max(lineHeight, size.height)
-        }
     }
 }
