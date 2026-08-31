@@ -18,6 +18,8 @@ struct WishListView: View {
     @State private var eraOnly = true
     @State private var adding = false
     @State private var addQuery = ""
+    /// The row the arrow keys are on in the add picker.
+    @State private var addHighlightedIdx = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -202,10 +204,46 @@ struct WishListView: View {
 
     // MARK: - Adding
 
+    /// The picker's ranked hits — hoisted so the arrow keys and the rows read one list.
+    private var addHits: [GearRow] {
+        let needle = addQuery.trimmingCharacters(in: .whitespaces).lowercased()
+        guard needle.count >= 2, index.ready else { return [] }
+        // Ranked the way the Electron picker ranks: a name that STARTS with what you typed
+        // before one that merely contains it, before an effect-only match.
+        return Array(index.rows
+            .filter { $0.searchKey.contains(needle) }
+            .sorted { a, b in
+                func rank(_ r: GearRow) -> Int {
+                    let n = r.name.lowercased()
+                    if n.hasPrefix(needle) { return 0 }
+                    if n.contains(needle) { return 1 }
+                    return 2
+                }
+                if rank(a) != rank(b) { return rank(a) < rank(b) }
+                if a.name.count != b.name.count { return a.name.count < b.name.count }
+                return a.name < b.name
+            }
+            .prefix(40))
+    }
+
+    /// Return adds the row the arrows are on; an already-wished row is skipped, not re-added.
+    private func addHighlighted() {
+        let hits = addHits
+        guard hits.indices.contains(addHighlightedIdx) else { return }
+        let row = hits[addHighlightedIdx]
+        guard !wishes.has(row.key) else { return }
+        wishes.add(WishEntry(itemKey: row.key, name: row.name, kind: "gear",
+                             addedAt: nowMs(), source: "user"))
+    }
+
     private var addPopover: some View {
         VStack(alignment: .leading, spacing: 8) {
             TextField("Search every item and effect", text: $addQuery)
                 .textFieldStyle(.roundedBorder).frame(width: 320)
+                .onChange(of: addQuery) { _, _ in addHighlightedIdx = 0 }
+                .onKeyPress(.downArrow) { addHighlightedIdx = min(addHighlightedIdx + 1, max(0, addHits.count - 1)); return .handled }
+                .onKeyPress(.upArrow) { addHighlightedIdx = max(0, addHighlightedIdx - 1); return .handled }
+                .onSubmit { addHighlighted() }
             let needle = addQuery.trimmingCharacters(in: .whitespaces).lowercased()
             if needle.count < 2 {
                 Text("Type at least two letters to search every item and effect.")
@@ -213,29 +251,15 @@ struct WishListView: View {
             } else if !index.ready {
                 Text("Reading the item database\u{2026}").font(.caption).foregroundStyle(Theme.textFaint)
             } else {
-                // Ranked the way the Electron picker ranks: a name that STARTS with what you typed
-                // before one that merely contains it, before an effect-only match.
-                let hits = index.rows
-                    .filter { $0.searchKey.contains(needle) }
-                    .sorted { a, b in
-                        func rank(_ r: GearRow) -> Int {
-                            let n = r.name.lowercased()
-                            if n.hasPrefix(needle) { return 0 }
-                            if n.contains(needle) { return 1 }
-                            return 2
-                        }
-                        if rank(a) != rank(b) { return rank(a) < rank(b) }
-                        if a.name.count != b.name.count { return a.name.count < b.name.count }
-                        return a.name < b.name
-                    }
-                    .prefix(40)
+                let hits = addHits
                 if hits.isEmpty {
                     Text("Nothing in the item database matches that.")
                         .font(.caption).foregroundStyle(Theme.textFaint)
                 } else {
+                    ScrollViewReader { proxy in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 2) {
-                            ForEach(Array(hits)) { row in
+                            ForEach(Array(hits.enumerated()), id: \.element.id) { i, row in
                                 let already = wishes.has(row.key)
                                 Button {
                                     wishes.add(WishEntry(itemKey: row.key, name: row.name, kind: "gear",
@@ -249,13 +273,22 @@ struct WishListView: View {
                                             .font(.caption2).foregroundStyle(Theme.textFaint)
                                     }
                                     .opacity(already ? 0.55 : 1)
+                                    .padding(.horizontal, 4).padding(.vertical, 2)
+                                    .background(RoundedRectangle(cornerRadius: 4)
+                                        .fill(i == addHighlightedIdx ? Theme.gold.opacity(0.22) : Color.clear))
+                                    .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
                                 .disabled(already)
+                                .id(row.id)
                             }
                         }
                     }
                     .frame(width: 320, height: 260)
+                    .onChange(of: addHighlightedIdx) { _, i in
+                        if hits.indices.contains(i) { proxy.scrollTo(hits[i].id) }
+                    }
+                    }
                 }
             }
         }

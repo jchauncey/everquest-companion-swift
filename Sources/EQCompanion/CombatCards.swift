@@ -702,6 +702,8 @@ struct FightPicker: View {
     @State private var query = ""
     @State private var hits: [ScopeOption] = []
     @State private var searching = false
+    /// The row the arrow keys are on; Return picks it. Follows the query, never survives it.
+    @State private var highlighted = 0
 
     /// The option the CLOSED trigger states. The live list wins whenever it holds the selection,
     /// so the head row keeps re-labelling itself live/last and its age keeps ticking.
@@ -741,41 +743,79 @@ struct FightPicker: View {
         o.live && scope == .overall ? "live" : CFmt.timing(startTs: o.startTs, durationSec: o.durationSec, now: at)
     }
 
-    private var list: some View {
+    /// What the open list shows — the browse rows, or the search hits once a query landed.
+    private var listRows: [ScopeOption] {
         let f = frozen ?? opts
         let browse = (f.head.map { [$0] } ?? []) + f.rest
-        let rows = query.trimmingCharacters(in: .whitespaces).isEmpty ? browse : hits
+        return query.trimmingCharacters(in: .whitespaces).isEmpty ? browse : hits
+    }
+
+    private var list: some View {
+        let f = frozen ?? opts
+        let rows = listRows
         return VStack(alignment: .leading, spacing: 6) {
             if scope == .fight {
                 TextField("Search every fight (mob, zone)…", text: $query)
                     .textFieldStyle(.roundedBorder)
-                    .onSubmit { Task { await runSearch() } }
+                    .onKeyPress(.downArrow) { move(1); return .handled }
+                    .onKeyPress(.upArrow) { move(-1); return .handled }
+                    .onSubmit {
+                        // Return picks the highlighted row when a list is up; with a fresh query
+                        // and no hits yet it runs the search instead.
+                        let q = query.trimmingCharacters(in: .whitespaces)
+                        if !q.isEmpty, hits.isEmpty { Task { await runSearch() } } else { pickHighlighted() }
+                    }
                     .onChange(of: query) { _, q in
+                        highlighted = 0
                         if q.trimmingCharacters(in: .whitespaces).isEmpty { hits = [] }
                     }
+                    .onChange(of: hits.count) { _, _ in highlighted = 0 }
             }
             if rows.isEmpty {
                 CombatNote(emptyText)
             }
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(rows.enumerated()), id: \.offset) { i, o in
-                        row(o, head: query.isEmpty && i == 0 && f.head != nil)
-                        if query.isEmpty, i == 0, f.head != nil { Divider().overlay(Theme.border) }
-                    }
-                    if query.isEmpty, capped {
-                        Button { onLoadMore() } label: {
-                            Text("Load more fights…").font(.caption).foregroundStyle(Theme.gold)
-                                .padding(.vertical, 5)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(rows.enumerated()), id: \.offset) { i, o in
+                            row(o, head: query.isEmpty && i == 0 && f.head != nil, keyed: i == highlighted)
+                                .id(i)
+                            if query.isEmpty, i == 0, f.head != nil { Divider().overlay(Theme.border) }
                         }
-                        .buttonStyle(.plain)
+                        if query.isEmpty, capped {
+                            Button { onLoadMore() } label: {
+                                Text("Load more fights…").font(.caption).foregroundStyle(Theme.gold)
+                                    .padding(.vertical, 5)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 }
+                .frame(height: 320)
+                .onChange(of: highlighted) { _, i in proxy.scrollTo(i) }
             }
-            .frame(height: 320)
         }
         .padding(10)
         .frame(width: 460)
+        // The zone-session list has no search field, so the keys land on the popover itself.
+        .focusable(scope != .fight)
+        .focusEffectDisabled()
+        .onKeyPress(.downArrow) { move(1); return .handled }
+        .onKeyPress(.upArrow) { move(-1); return .handled }
+        .onKeyPress(.return) { pickHighlighted(); return .handled }
+    }
+
+    private func move(_ d: Int) {
+        let n = listRows.count
+        guard n > 0 else { return }
+        highlighted = min(max(0, highlighted + d), n - 1)
+    }
+
+    private func pickHighlighted() {
+        let rows = listRows
+        guard rows.indices.contains(highlighted) else { return }
+        onSelect(rows[highlighted].value)
+        open = false
     }
 
     private var emptyText: String {
@@ -785,7 +825,7 @@ struct FightPicker: View {
         return "No fights match “\(q)”."
     }
 
-    private func row(_ o: ScopeOption, head: Bool) -> some View {
+    private func row(_ o: ScopeOption, head: Bool, keyed: Bool = false) -> some View {
         Button {
             onSelect(o.value)
             open = false
@@ -808,7 +848,8 @@ struct FightPicker: View {
             }
             .padding(.vertical, 4).padding(.horizontal, 6)
             .background(RoundedRectangle(cornerRadius: 4)
-                .fill(o.value == selection ? Theme.gold.opacity(0.12) : Color.clear))
+                .fill(keyed ? Theme.gold.opacity(0.22)
+                      : o.value == selection ? Theme.gold.opacity(0.12) : Color.clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
