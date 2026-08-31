@@ -42,6 +42,9 @@ struct MapsView: View {
     @State private var locText = ""
     @State private var locError: String?
     @State private var paneOpen = UserDefaults.standard.string(forKey: MapsView.paneKey) != "0"
+    @State private var annotateOpen = false
+    @State private var annotateName = MapAnnotations.defaultPackName
+    @State private var annotateStatus: (String, Bool)?
 
     static let paneKey = "eq.maps.pane"
     /// Which pack drew each layer. Geometry and labels routinely come from DIFFERENT packs, and
@@ -211,26 +214,31 @@ struct MapsView: View {
                 prefs.save()
             }
 
-            // The generated pack: every mob position the wiki states, as an ordinary labels pack.
-            // Regenerating rewrites it and selects it; the pack menus switch back any time.
-            Button {
-                Task {
-                    guard let r = try? MapAnnotations.generate() else { return }
-                    store.invalidateScan()
-                    await store.scan(root: model.install?.root)
-                    prefs.labels = MapAnnotations.packId
-                    prefs.save()
-                    model.note("wiki annotations pack: \(r.labels) labels across \(r.zones) zones")
-                }
-            } label: {
+            // Exporting the wiki mob positions as a labels pack happens only when asked, into a
+            // pack NAME the user gives (default EQC); nothing that exists is ever overwritten.
+            Button { annotateOpen = true } label: {
                 Label("Wiki pins", systemImage: "wand.and.stars").font(.caption)
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 8).padding(.vertical, 4)
-            .background(Capsule().fill(prefs.labels == MapAnnotations.packId ? Theme.gold.opacity(0.16) : Color.clear))
-            .overlay(Capsule().stroke(prefs.labels == MapAnnotations.packId ? Theme.gold.opacity(0.6) : Theme.border))
-            .foregroundStyle(prefs.labels == MapAnnotations.packId ? Theme.gold : Theme.textDim)
-            .help("Write the \u{201C}Wiki annotations\u{201D} labels pack - one label at every mob position the wiki states - and use it for this map's labels. Pick another pack from the Labels menu to switch back.")
+            .overlay(Capsule().stroke(Theme.border))
+            .foregroundStyle(Theme.textDim)
+            .help("Write every mob position the wiki states as a labels map pack, under a name you give. The pack appears in the Labels menu.")
+            .popover(isPresented: $annotateOpen, arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Export wiki annotations").font(.callout.weight(.semibold)).foregroundStyle(Theme.text)
+                    Text("Writes one label at every mob position the wiki states, as an ordinary labels pack in this app's mappacks folder. Your existing packs are untouched; a name that is already taken is refused, not overwritten.")
+                        .font(.caption).foregroundStyle(Theme.textDim)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 6) {
+                        TextField("Pack name", text: $annotateName).textFieldStyle(.roundedBorder).frame(width: 180)
+                        Button("Generate") { generateAnnotations() }.buttonStyle(OutlineButtonStyle())
+                    }
+                    if let e = annotateStatus { Text(e.0).font(.caption).foregroundStyle(e.1 ? Theme.green : Theme.red) }
+                }
+                .padding(12)
+                .frame(width: 360)
+            }
 
             locField
         }
@@ -583,6 +591,24 @@ struct MapsView: View {
             // The zone is open but the catalog places no such row: leave the search saying why.
             query = j.mob
             MapJump.shared.clear()
+        }
+    }
+
+    /// Export the wiki positions under the asked-for pack name and point the Labels layer at it.
+    private func generateAnnotations() {
+        do {
+            let r = try MapAnnotations.generate(named: annotateName)
+            let id = (MapAnnotations.validName(annotateName) ?? annotateName).lowercased()
+            annotateStatus = ("\(r.labels) labels across \(r.zones) zones - selected as this map's labels.", true)
+            Task {
+                store.invalidateScan()
+                await store.scan(root: model.install?.root)
+                prefs.labels = id
+                prefs.save()
+            }
+            model.note("wiki annotations pack \u{201C}\(annotateName)\u{201D}: \(r.labels) labels, \(r.zones) zones")
+        } catch {
+            annotateStatus = (error.localizedDescription, false)
         }
     }
 
