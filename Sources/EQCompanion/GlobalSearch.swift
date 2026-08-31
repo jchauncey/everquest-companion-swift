@@ -109,9 +109,9 @@ struct GlobalSearchField: View {
                 .onKeyPress(.escape) { open = false; return .handled }
                 .onSubmit { pickHighlighted() }
         }
-        .padding(.horizontal, 8).padding(.vertical, 4)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Theme.paperRaised))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.border))
+        // No box of our own: the toolbar already draws a capsule around its items, and a second
+        // border inside it reads as two input boxes.
+        .padding(.horizontal, 4)
         .popover(isPresented: $open, arrowEdge: .bottom) { results }
     }
 
