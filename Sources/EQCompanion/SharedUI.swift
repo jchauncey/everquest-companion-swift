@@ -106,7 +106,11 @@ struct RecordView: View {
         case .string(let s) where s.contains("\n") || key == "statsBlock":
             VStack(alignment: .leading, spacing: 2) {
                 Text(label(key)).font(.caption).foregroundStyle(.secondary)
-                Text(s).font(.callout.monospaced()).textSelection(.enabled)
+                // The wiki text separates every line with a blank one; squeezed here, the block
+                // reads like the item window instead of a double-spaced page.
+                Text(s.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+                        .filter { !$0.isEmpty }.joined(separator: "\n"))
+                    .font(.callout.monospaced()).textSelection(.enabled)
             }
         default:
             HStack(alignment: .firstTextBaseline) {
