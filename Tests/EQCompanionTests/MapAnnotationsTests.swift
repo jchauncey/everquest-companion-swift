@@ -29,5 +29,9 @@ final class MapAnnotationsTests: XCTestCase {
         XCTAssertFalse(parsed.points.isEmpty)
         XCTAssertTrue(parsed.points.allSatisfy { $0.r == 200 && $0.size == 2 })
         XCTAssertTrue(parsed.points.allSatisfy { !$0.display.contains("_") })
+        // The default filter keeps the named (capitalized) mobs and drops the lowercase fluff.
+        XCTAssertTrue(parsed.points.allSatisfy { $0.display.first?.isUppercase ?? false })
+        let all = try MapAnnotations.generate(into: tmp, filter: .init(common: true))
+        XCTAssertGreaterThan(all.labels, r.labels, "including common spawns must add labels")
     }
 }

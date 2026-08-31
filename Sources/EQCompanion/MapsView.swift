@@ -45,6 +45,7 @@ struct MapsView: View {
     @State private var annotateOpen = false
     @State private var annotateName = MapAnnotations.defaultPackName
     @State private var annotateStatus: (String, Bool)?
+    @State private var annotateCommon = false
 
     static let paneKey = "eq.maps.pane"
     /// Which pack drew each layer. Geometry and labels routinely come from DIFFERENT packs, and
@@ -230,6 +231,10 @@ struct MapsView: View {
                     Text("Writes one label at every mob position the wiki states, as an ordinary labels pack folder inside your EverQuest install's maps directory. The game's own files and your existing packs are untouched; a name that is already taken is refused, not overwritten.")
                         .font(.caption).foregroundStyle(Theme.textDim)
                         .fixedSize(horizontal: false, vertical: true)
+                    Toggle("Include common spawns (\u{201C}a froglok sentry\u{201D} and kin)", isOn: $annotateCommon)
+                        .toggleStyle(.checkbox).font(.caption).foregroundStyle(Theme.textDim)
+                    Text(annotateCommon ? "Every mob position the wiki states." : "Named and rare mobs only - the capitalized names.")
+                        .font(.caption).foregroundStyle(Theme.textFaint)
                     HStack(spacing: 6) {
                         TextField("Pack name", text: $annotateName).textFieldStyle(.roundedBorder).frame(width: 180)
                         Button("Generate") { generateAnnotations() }.buttonStyle(OutlineButtonStyle())
@@ -598,7 +603,8 @@ struct MapsView: View {
     private func generateAnnotations() {
         do {
             guard let root = model.install?.root else { throw MapAnnotations.GenerateError.noInstall }
-            let r = try MapAnnotations.generate(named: annotateName, root: root)
+            let r = try MapAnnotations.generate(named: annotateName, root: root,
+                                                filter: .init(common: annotateCommon))
             let id = (MapAnnotations.validName(annotateName) ?? annotateName).lowercased()
             annotateStatus = ("\(r.labels) labels across \(r.zones) zones - selected as this map's labels.", true)
             Task {

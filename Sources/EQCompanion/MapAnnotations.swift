@@ -20,6 +20,20 @@ enum MapAnnotations {
 
     struct Result { var zones = 0; var labels = 0 }
 
+    /// What to write. The wiki's own naming convention is the classifier: a NAMED (or rare) mob
+    /// is capitalized ("Skeleton Lrodd"); a common spawn is lowercase ("a froglok sentry").
+    struct Filter {
+        /// Always-on half: the named and rare mobs.
+        var named = true
+        /// The fluff — every lowercase-named common spawn.
+        var common = false
+
+        func keeps(_ name: String) -> Bool {
+            let isCommon = name.first.map { $0.isLowercase } ?? true
+            return isCommon ? common : named
+        }
+    }
+
     enum GenerateError: LocalizedError {
         case badName
         case noInstall
@@ -44,7 +58,7 @@ enum MapAnnotations {
     /// Write (or rewrite) the pack: one `<stem>_1.txt` per zone that has any placed wiki mob.
     /// Rewriting requires the marker — this app only ever replaces what it generated itself.
     @discardableResult
-    static func generate(named rawName: String = MapAnnotations.defaultPackName, root: URL? = nil, into override: URL? = nil) throws -> Result {
+    static func generate(named rawName: String = MapAnnotations.defaultPackName, root: URL? = nil, into override: URL? = nil, filter: Filter = Filter()) throws -> Result {
         guard let name = validName(rawName) else { throw GenerateError.badName }
         let dir: URL
         if let override { dir = override }
@@ -63,7 +77,7 @@ enum MapAnnotations {
         var out = Result()
         for z in GameData.shared.zones {
             var lines: [String] = []
-            for row in MapPaneRows.mobRows(zoneName: z.name) where row.kind == .mob {
+            for row in MapPaneRows.mobRows(zoneName: z.name) where row.kind == .mob && filter.keeps(row.name) {
                 for pin in row.pins {
                     // The game's label convention: underscores, shown as spaces. A strong red:
                     // readable on the game's parchment map AND on the companion's dark one —
