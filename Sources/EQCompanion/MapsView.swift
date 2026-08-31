@@ -539,7 +539,8 @@ struct MapsView: View {
     /// rows are in. Consumed exactly once.
     private func consumeJump() {
         guard let j = MapJump.shared.pending else { return }
-        if let z = j.zone, z != sel.zone { pick(z); return }   // rows reload; called again below
+        if let z = j.zone, z != sel.zone { pick(z); if j.mob.isEmpty { MapJump.shared.clear() }; return }
+        if j.mob.isEmpty { MapJump.shared.clear(); return }   // a zone-only jump is done here
         guard !allMobs.isEmpty || MapJump.shared.pending?.zone == nil else { return }
         if let row = allMobs.first(where: { $0.kind == .mob && $0.name.caseInsensitiveCompare(j.mob) == .orderedSame })
             ?? allMobs.first(where: { $0.kind == .mob && $0.name.localizedCaseInsensitiveContains(j.mob) }) {

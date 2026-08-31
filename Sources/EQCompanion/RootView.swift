@@ -7,7 +7,8 @@ enum Tab: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 
     /// The Electron nav order, then the Mac-only extras.
-    static let primary: [Tab] = [.overview, .combat, .mobs, .loot, .gear, .maps, .raidTargets, .planeOfSky, .alerts, .leveling, .buffs, .timers]
+    /// The Electron nav order, minus Mobs — the global search box replaced that page.
+    static let primary: [Tab] = [.overview, .combat, .loot, .gear, .maps, .raidTargets, .planeOfSky, .alerts, .leveling, .buffs, .timers]
     static let secondary: [Tab] = [.events, .knowledge, .spells, .engine]
 
     var label: String {
@@ -88,7 +89,9 @@ struct RootView: View {
             .toolbarBackground(.hidden, for: .windowToolbar)
             .navigationTitle("EQ Companion")
             .toolbar {
-                // Everything is right-anchored: the character (one per server, so it rarely
+                // The one search box: zones, mobs, items — each hit jumps to its own surface.
+                ToolbarItem(placement: .principal) { GlobalSearchField() }
+                // Everything else is right-anchored: the character (one per server, so it rarely
                 // changes), the HUD number, the log's state, the overlay switch.
                 ToolbarItemGroup(placement: .primaryAction) {
                     if let t = PerfHUD.shared.text {

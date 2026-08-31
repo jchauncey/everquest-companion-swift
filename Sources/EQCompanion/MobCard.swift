@@ -31,6 +31,13 @@ final class MapJump {
         UserDefaults.standard.set(Tab.maps.rawValue, forKey: "eq.tab")
     }
 
+    /// Jump to a zone alone — the map opens it and nothing is selected.
+    func showZone(_ zone: ZoneShort) {
+        seq += 1
+        pending = Pending(zone: zone, mob: "", seq: seq)
+        UserDefaults.standard.set(Tab.maps.rawValue, forKey: "eq.tab")
+    }
+
     func clear() { pending = nil }
 }
 

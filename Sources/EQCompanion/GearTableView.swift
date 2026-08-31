@@ -117,6 +117,9 @@ struct GearTableView: View {
                 .frame(width: 560, height: 640)
                 .background(Theme.background)
         }
+        // The global search's item jump: the table filters to the item and its card opens.
+        .task(id: ItemJump.shared.pending?.seq ?? 0) { consumeItemJump() }
+        .onChange(of: index.ready) { _, _ in consumeItemJump() }
     }
 
     // MARK: - Controls
@@ -163,6 +166,15 @@ struct GearTableView: View {
                 Spacer(minLength: 0)
             }
         }
+    }
+
+    private func consumeItemJump() {
+        guard let j = ItemJump.shared.pending else { return }
+        guard index.ready || !index.rows.isEmpty else { index.start(); return }
+        query = j.name
+        opened = index.rows.first { $0.name.caseInsensitiveCompare(j.name) == .orderedSame }
+            ?? index.rows.first { $0.name.lowercased().hasPrefix(j.name.lowercased()) }
+        ItemJump.shared.clear()
     }
 
     private var upgradeLabel: String {
