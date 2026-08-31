@@ -81,6 +81,7 @@ struct MobCardView: View {
                 if m.drops.isEmpty {
                     Text("The page lists no loot for \(m.name).").font(.callout).foregroundStyle(Theme.textFaint)
                 } else {
+                    // Sized by the list, capped by the card: two drops take two rows, not a box.
                     ScrollView {
                         VStack(alignment: .leading, spacing: 1) {
                             ForEach(m.drops, id: \.self) { d in
@@ -96,7 +97,7 @@ struct MobCardView: View {
                             }
                         }
                     }
-                    .frame(maxHeight: 150)
+                    .frame(height: min(CGFloat(m.drops.count) * 21, 150))
                 }
             }
         } else {

@@ -88,19 +88,18 @@ struct ItemCardView: View {
             .filter { $0.value != 0 && !leadKeys.contains($0.key) }
             .sorted { $0.key < $1.key }
             .map { ($0.key.replacingOccurrences(of: "_", with: " "), $0.value > 0 ? "+\($0.value)" : "\($0.value)") }
-        return ScrollView {
-            FlowLayout(spacing: 6) {
-                ForEach(Array((lead + rest).enumerated()), id: \.offset) { _, kv in
-                    HStack(spacing: 4) {
-                        Text(kv.0).font(.caption2).foregroundStyle(Theme.textDim)
-                        Text(kv.1).font(.caption.monospacedDigit()).foregroundStyle(Theme.text)
-                    }
-                    .fixedSize()
-                    .padding(.horizontal, 7).padding(.vertical, 4)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(Theme.paperRaised))
+        // No scroll box: the flow's own wrapped height is the right height, and an item has at
+        // most a couple of rows of chips — a fixed-height container was mostly empty space.
+        return FlowLayout(spacing: 6) {
+            ForEach(Array((lead + rest).enumerated()), id: \.offset) { _, kv in
+                HStack(spacing: 4) {
+                    Text(kv.0).font(.caption2).foregroundStyle(Theme.textDim)
+                    Text(kv.1).font(.caption.monospacedDigit()).foregroundStyle(Theme.text)
                 }
+                .fixedSize()
+                .padding(.horizontal, 7).padding(.vertical, 4)
+                .background(RoundedRectangle(cornerRadius: 4).fill(Theme.paperRaised))
             }
         }
-        .frame(maxHeight: 96)
     }
 }
