@@ -336,9 +336,17 @@ struct MapsView: View {
         .background(RoundedRectangle(cornerRadius: 8).fill(Theme.paper))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
         .clipShape(RoundedRectangle(cornerRadius: 8))
-        .popover(isPresented: Binding(get: { cardMob != nil }, set: { if !$0 { cardMob = nil } }),
-                 attachmentAnchor: .rect(.rect(cardAnchor)), arrowEdge: .top) {
-            if let m = cardMob { MobCardView(name: m) }
+        // An in-window card, not an NSPopover: a popover dies the moment the app deactivates,
+        // and looking something up mid-fight means alt-tabbing back to the game.
+        .overlay(alignment: .topLeading) {
+            if let m = cardMob {
+                MobCardView(name: m, onClose: { cardMob = nil })
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border))
+                    .shadow(color: .black.opacity(0.55), radius: 18, y: 6)
+                    .offset(x: max(8, min(cardAnchor.midX - 190, canvasSize.width - 396)),
+                            y: max(8, min(cardAnchor.midY + 14, max(8, canvasSize.height - 536))))
+            }
         }
         .overlay(alignment: .topTrailing) {
             if !paneOpen {
@@ -520,7 +528,7 @@ struct MapsView: View {
             let d = hypot(sp.px - p.x, sp.py - p.y)
             if d <= 14, d < (best?.1 ?? .infinity) { best = (pin, d) }
         }
-        guard let (pin, _) = best else { return }
+        guard let (pin, _) = best else { cardMob = nil; return }   // empty ground closes the card
         selectedId = pin.rowId
         selectedAt = MapXY(x: pin.pin.x, y: pin.pin.y)
         cardAnchor = CGRect(x: p.x, y: p.y, width: 1, height: 1)

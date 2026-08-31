@@ -27,6 +27,10 @@ struct MobsView: View {
     @State private var character = ModuleSnapshot()
     @State private var query = ""
     @State private var selected: String?
+    /// Filters over the catalog: a zone ("" = anywhere) and a level window (blank = unbounded).
+    @State private var filterZone = ""
+    @State private var minLevel = ""
+    @State private var maxLevel = ""
 
     /// The kill index, folded once per snapshot — never per row.
     private var killIndex: [String: KillInfo] { KillRecord.index(KillRecord.parse(kills.state)) }
@@ -35,6 +39,76 @@ struct MobsView: View {
         return z.isEmpty ? nil : z
     }
     private var searching: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
+    private var filtering: Bool { !filterZone.isEmpty || Int(minLevel) != nil || Int(maxLevel) != nil }
+
+    /// "1-2 or 1-5", "4-6, ~12", "45" → the span of every number the text states.
+    static func levelRange(_ text: String) -> ClosedRange<Int>? {
+        var nums: [Int] = []
+        var cur = 0, has = false
+        for ch in text {
+            if let d = ch.wholeNumberValue, d >= 0, d <= 9 { cur = cur * 10 + d; has = true }
+            else if has { nums.append(cur); cur = 0; has = false }
+        }
+        if has { nums.append(cur) }
+        guard let lo = nums.min(), let hi = nums.max(), lo > 0 else { return nil }
+        return lo...hi
+    }
+
+    /// A level filter keeps only rows whose stated span touches the window; a mob with no stated
+    /// level cannot satisfy a level filter. The zone filter is the wiki page's own zone list.
+    private func passesFilters(_ m: GameData.Mob) -> Bool {
+        if !filterZone.isEmpty,
+           !m.zones.contains(where: { $0.caseInsensitiveCompare(filterZone) == .orderedSame }) { return false }
+        let lo = Int(minLevel), hi = Int(maxLevel)
+        if lo != nil || hi != nil {
+            guard let r = Self.levelRange(m.level) else { return false }
+            if let lo, r.upperBound < lo { return false }
+            if let hi, r.lowerBound > hi { return false }
+        }
+        return true
+    }
+
+    /// Every zone the mob catalog names, for the filter menu.
+    private var catalogZones: [String] {
+        var seen = Set<String>(), out: [String] = []
+        for m in GameData.shared.mobs {
+            for z in m.zones where seen.insert(z.lowercased()).inserted { out.append(z) }
+        }
+        return out.sorted()
+    }
+
+    /// Browsing by filter alone (no search text): the catalog rows the filters keep, ordered by
+    /// the bottom of their stated level span, capped so a level-only sweep stays a list.
+    private var filterBrowse: some View {
+        let rows = GameData.shared.mobs.filter(passesFilters)
+            .sorted { a, b in
+                let la = Self.levelRange(a.level)?.lowerBound ?? Int.max
+                let lb = Self.levelRange(b.level)?.lowerBound ?? Int.max
+                return la != lb ? la < lb : a.page < b.page
+            }
+        let shown = Array(rows.prefix(200))
+        return Card {
+            HStack(spacing: 4) {
+                Text("\(rows.count) mob\(rows.count == 1 ? "" : "s") match").font(.caption).foregroundStyle(Theme.textDim)
+                if rows.count > shown.count {
+                    Text("· first \(shown.count) shown - narrow the level window").font(.caption).foregroundStyle(Theme.textFaint)
+                }
+            }
+            if rows.isEmpty {
+                Text("Nothing in the catalog matches these filters.").font(.callout).foregroundStyle(Theme.textFaint)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(shown, id: \.page) { m in
+                            MobResultRow(mob: m, kill: KillRecord.killsFor(killIndex, m.name),
+                                         selected: selected == m.name) { selected = m.name }
+                        }
+                    }
+                }
+                .frame(maxHeight: 520)
+            }
+        }
+    }
 
     var body: some View {
         NeedsEngine {
@@ -55,11 +129,38 @@ struct MobsView: View {
 
     private var browse: some View {
         VStack(alignment: .leading, spacing: 12) {
-            TextField("Search mobs…", text: $query)
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 420)
+            HStack(spacing: 8) {
+                TextField("Search mobs…", text: $query)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 420)
+                Menu {
+                    Button("Anywhere") { filterZone = "" }
+                    Divider()
+                    ForEach(catalogZones, id: \.self) { z in
+                        Button(z) { filterZone = z }
+                    }
+                } label: {
+                    Text(filterZone.isEmpty ? "Zone: anywhere" : "Zone: \(filterZone)")
+                        .font(.caption).lineLimit(1)
+                }
+                .menuStyle(.borderlessButton)
+                .frame(maxWidth: 220)
+                Text("Lvl").font(.caption).foregroundStyle(Theme.textDim)
+                TextField("min", text: $minLevel).textFieldStyle(.roundedBorder).frame(width: 46)
+                Text("–").font(.caption).foregroundStyle(Theme.textFaint)
+                TextField("max", text: $maxLevel).textFieldStyle(.roundedBorder).frame(width: 46)
+                if filtering {
+                    Button { filterZone = ""; minLevel = ""; maxLevel = "" } label: {
+                        Chip(text: "clear", color: Theme.textDim)
+                    }
+                    .buttonStyle(.plain)
+                }
+                Spacer(minLength: 0)
+            }
             if searching {
                 searchResults
+            } else if filtering {
+                filterBrowse
             } else {
                 if let z = zone { zoneRoster(z) }
                 recentlyConsidered
@@ -73,7 +174,7 @@ struct MobsView: View {
     // MARK: - Search
 
     private var searchResults: some View {
-        let hits = MobCatalogIndex.shared.search(query)
+        let hits = MobCatalogIndex.shared.search(query).filter(passesFilters)
         let total = MobCatalogIndex.shared.catalogCount
         return Card {
             if hits.isEmpty {

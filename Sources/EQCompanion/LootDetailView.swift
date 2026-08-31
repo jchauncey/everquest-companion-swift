@@ -110,9 +110,11 @@ struct LootDetailView: View {
                     .padding(14)
                 }
                 .frame(minWidth: 420, maxWidth: .infinity)
-                // The engine's own card for the item — the same one every knowledge surface draws.
-                KnowledgeCard(domain: "item", name: LootName.normalize(item))
-                    .frame(minWidth: 300, idealWidth: 360, maxWidth: 460)
+                // THE item card — the knowledge record with the upgrade slider on top, the same
+                // surface the Gear peek and the map's mob card draw.
+                ItemCardView(name: LootName.normalize(item))
+                    .padding(.vertical, 8)
+                    .frame(minWidth: 300, idealWidth: 380, maxWidth: 460)
             }
         }
         .task(id: "\(model.moduleSeqs["kills"] ?? 0)|\(model.epoch ?? 0)") { await kills.refresh(model, module: "kills") }

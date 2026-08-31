@@ -111,16 +111,11 @@ struct GearTableView: View {
             await store.refresh(model, seq: model.moduleSeqs["outputFiles"] ?? 0)
         }
         .sheet(item: $opened) { row in
-            VStack(spacing: 0) {
-                KnowledgeCard(domain: "item", name: row.name)
-                Divider()
-                HStack {
-                    Spacer()
-                    Button("CLOSE") { opened = nil }.buttonStyle(OutlineButtonStyle())
-                }.padding(8)
-            }
-            .frame(width: 560, height: 620)
-            .background(Theme.background)
+            // THE item card — the same surface the map's mob card and the Loot drill-down draw.
+            ItemCardView(name: row.name, onClose: { opened = nil })
+                .padding(12)
+                .frame(width: 560, height: 640)
+                .background(Theme.background)
         }
     }
 
