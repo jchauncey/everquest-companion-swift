@@ -3,6 +3,28 @@ import SwiftUI
 import AppKit
 @testable import EQCompanion
 
+/// Proposes an exact width to its content without pinning where the content lands - the way a
+/// scroll view proposes its viewport width and lets the content fall where it may.
+private struct ProposeWidth: ViewModifier, Layout {
+    let width: CGFloat
+    init(_ width: CGFloat) { self.width = width }
+
+    func body(content: Content) -> some View { self.callAsFunction { content } }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let h = subviews.first?.sizeThatFits(ProposedViewSize(width: width, height: nil)).height ?? 0
+        return CGSize(width: width, height: h)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let s = subviews.first else { return }
+        let size = s.sizeThatFits(ProposedViewSize(width: width, height: bounds.height))
+        // Centred if it does not fit - which is precisely what an over-wide HStack does.
+        s.place(at: CGPoint(x: bounds.midX - size.width / 2, y: bounds.minY),
+                proposal: ProposedViewSize(width: width, height: bounds.height))
+    }
+}
+
 final class GearColumnsTests: XCTestCase {
     @MainActor
     private func store() -> (GearColumnWidths, UserDefaults) {
@@ -129,31 +151,72 @@ final class GearColumnsTests: XCTestCase {
                        "a row draws \(measured.width)pt but the scroll frame is told \(expected)pt - the difference is cut off both ends")
     }
 
-    /// Leftover width goes to the flexible column, and only when there IS leftover.
-    func testTheTableFillsItsPaneButNeverStretchesPastIt() {
-        let cols = [
-            GearColumn(key: "name", label: "Item", kind: .name, defaultWidth: 300),
-            GearColumn(key: "zone", label: "Zone", kind: .text, defaultWidth: 150, flexible: true),
-        ]
-        let need = GearColumnSet.totalWidth(cols) { $0.defaultWidth }   // 300 + 150 + 2 gutters
-        XCTAssertEqual(need, 466)
+    /// A row must survive the width being taken away from it after layout.
+    ///
+    /// THE BUG THIS REPLACES: the flexible column used to be handed an arithmetic width - pane
+    /// minus what the fixed columns need - which makes a row exactly as wide as the space it was
+    /// offered, with no give. Then macOS's vertical scroller claimed its ~15pt of content width,
+    /// the row was over-committed by that much, and an over-wide HStack CENTRES its overflow: half
+    /// went off the left edge and sliced the item icon in two.
+    ///
+    /// Measured here as the first cell's origin when the row is offered LESS than it would like.
+    /// Asking for the rest (`maxWidth: .infinity`) survives it; being told the rest does not.
+    @MainActor
+    func testARowOfferedLessWidthThanExpectedDoesNotSlideLeft() {
+        final class Measured: @unchecked Sendable { var minX: CGFloat = .nan }
 
-        // A roomy pane: every spare point is the flexible column's, so the table reaches the edge.
-        XCTAssertEqual(GearColumnSet.slack(cols, available: 900) { $0.defaultWidth }, 900 - need)
-        // Exactly enough, and too little: no stretch, and no negative width - it scrolls instead.
-        XCTAssertEqual(GearColumnSet.slack(cols, available: need) { $0.defaultWidth }, 0)
-        XCTAssertEqual(GearColumnSet.slack(cols, available: 200) { $0.defaultWidth }, 0)
-        // A pane that has not been measured yet must not produce a bogus width.
-        XCTAssertEqual(GearColumnSet.slack(cols, available: 0) { $0.defaultWidth }, 0)
-        XCTAssertEqual(GearColumnSet.slack(cols, available: .infinity) { $0.defaultWidth }, 0)
-        XCTAssertEqual(GearColumnSet.slack(cols, available: .nan) { $0.defaultWidth }, 0)
+        struct Probe: View {
+            let measured: Measured
+            /// true = the flexible column asks for the rest; false = it is told an exact width.
+            var asksForTheRest: Bool
+            /// What the row was sized for, before something took a bite out of it.
+            let expected: CGFloat = 400
+            /// What it actually gets - a scroller's worth less.
+            let actual: CGFloat = 385
 
-        // Only the flexible column grows; everything else keeps the width it was given.
-        let slack = GearColumnSet.slack(cols, available: 900) { $0.defaultWidth }
-        func drawn(_ c: GearColumn) -> CGFloat { c.defaultWidth + (c.flexible ? slack : 0) }
-        XCTAssertEqual(drawn(cols[0]), 300)
-        XCTAssertEqual(drawn(cols[1]), 150 + slack)
-        XCTAssertEqual(GearColumnSet.totalWidth(cols, width: drawn), 900, "the table ends at the pane's edge")
+            var body: some View {
+                // Rigid cells, like the table's fixed-width columns - a Text would just compress
+                // and hide the very effect under test.
+                HStack(spacing: 0) {
+                    Color.gray
+                        .frame(width: 100, height: 20)
+                        .background(GeometryReader { g in
+                            Color.clear.onAppear { measured.minX = g.frame(in: .named("view")).minX }
+                        })
+                    if asksForTheRest {
+                        Color.blue.frame(maxWidth: .infinity, minHeight: 20)
+                    } else {
+                        Color.blue.frame(width: expected - 100, height: 20)
+                    }
+                }
+                // The row is PROPOSED a narrower width, exactly as a scroll view proposes its
+                // content the viewport minus the scroller - not given a leading-aligned frame,
+                // which would pin it and hide the effect.
+                .modifier(ProposeWidth(actual))
+                .coordinateSpace(name: "view")
+            }
+        }
+
+        func minX(asksForTheRest: Bool) -> CGFloat {
+            let measured = Measured()
+            let host = NSHostingView(rootView: Probe(measured: measured, asksForTheRest: asksForTheRest))
+            host.frame = NSRect(x: 0, y: 0, width: 385, height: 40)
+            let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                                  backing: .buffered, defer: false)
+            window.contentView = host
+            host.layoutSubtreeIfNeeded()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+            return measured.minX
+        }
+
+        let told = minX(asksForTheRest: false)
+        XCTAssertFalse(told.isNaN, "the probe never laid out - the measurement is meaningless")
+        XCTAssertLessThan(told, 0, "a row told an exact width should slide left when short-changed, proving the hazard is real")
+
+        let asked = minX(asksForTheRest: true)
+        XCTAssertFalse(asked.isNaN)
+        XCTAssertEqual(asked, 0, accuracy: 1,
+                       "the first cell began \(asked)pt left of the row - that is what slices the icon")
     }
 
     /// A table too wide for its pane must SCROLL, never spill.
