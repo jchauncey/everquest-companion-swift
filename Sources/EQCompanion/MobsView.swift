@@ -275,6 +275,11 @@ private struct MobDetailPane: View {
             HStack {
                 Text(name).font(.headline).foregroundStyle(Theme.text).lineLimit(1)
                 Spacer()
+                // Jumps to the Maps tab, opens the mob's zone and puts the camera on its pin.
+                if let m = GameData.shared.mob(named: name), !m.zones.isEmpty {
+                    Button("Show on map") { MapJump.shared.show(mob: name, zonesLongNames: m.zones) }
+                        .buttonStyle(OutlineButtonStyle())
+                }
                 Button("Close", action: onClose).buttonStyle(OutlineButtonStyle())
             }
             .padding(10)

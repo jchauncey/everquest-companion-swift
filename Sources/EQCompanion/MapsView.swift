@@ -33,6 +33,9 @@ struct MapsView: View {
     @State private var query = ""
     @State private var selectedId: String?
     @State private var selectedAt: MapXY?
+    /// The mob card popover a pin click (or a cross-tab jump) opens, and where it points.
+    @State private var cardMob: String?
+    @State private var cardAnchor: CGRect = .zero
     @State private var allMobs: [MapPaneRow] = []
 
     @State private var locs = LocMarkers.load()
@@ -116,7 +119,9 @@ struct MapsView: View {
         }
         .task(id: zoneName ?? "") {
             allMobs = zoneName.map { MapPaneRows.mobRows(zoneName: $0) } ?? []
+            consumeJump()
         }
+        .task(id: MapJump.shared.pending?.seq ?? 0) { consumeJump() }
         .onChange(of: store.data?.zone) { _, _ in
             zoomed = nil
             floor = nil
@@ -313,6 +318,9 @@ struct MapsView: View {
                     .onEnded { _ in dragBase = nil }
             )
             .simultaneousGesture(
+                SpatialTapGesture().onEnded { v in tapPin(at: v.location) }
+            )
+            .simultaneousGesture(
                 MagnifyGesture(minimumScaleDelta: 0.005)
                     .onChanged { v in
                         if magnifyBase == nil { magnifyBase = camera }
@@ -328,6 +336,10 @@ struct MapsView: View {
         .background(RoundedRectangle(cornerRadius: 8).fill(Theme.paper))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
         .clipShape(RoundedRectangle(cornerRadius: 8))
+        .popover(isPresented: Binding(get: { cardMob != nil }, set: { if !$0 { cardMob = nil } }),
+                 attachmentAnchor: .rect(.rect(cardAnchor)), arrowEdge: .top) {
+            if let m = cardMob { MobCardView(name: m) }
+        }
         .overlay(alignment: .topTrailing) {
             if !paneOpen {
                 Button {
@@ -498,6 +510,43 @@ struct MapsView: View {
         selectedId = row.id
         selectedAt = at
         centerOn(at)
+    }
+
+    /// A click on the canvas: the nearest mob pin within reach opens its card, anchored there.
+    private func tapPin(at p: CGPoint) {
+        var best: (MapPaneRows.PlacedPin, Double)?
+        for pin in placed.pins {
+            let sp = MapGeo.project(camera, canvasSize, MapXY(x: pin.pin.x, y: pin.pin.y))
+            let d = hypot(sp.px - p.x, sp.py - p.y)
+            if d <= 14, d < (best?.1 ?? .infinity) { best = (pin, d) }
+        }
+        guard let (pin, _) = best else { return }
+        selectedId = pin.rowId
+        selectedAt = MapXY(x: pin.pin.x, y: pin.pin.y)
+        cardAnchor = CGRect(x: p.x, y: p.y, width: 1, height: 1)
+        cardMob = pin.name
+    }
+
+    /// A "Show on map" from another tab: open the zone, then put the camera on the mob once its
+    /// rows are in. Consumed exactly once.
+    private func consumeJump() {
+        guard let j = MapJump.shared.pending else { return }
+        if let z = j.zone, z != sel.zone { pick(z); return }   // rows reload; called again below
+        guard !allMobs.isEmpty || MapJump.shared.pending?.zone == nil else { return }
+        if let row = allMobs.first(where: { $0.kind == .mob && $0.name.caseInsensitiveCompare(j.mob) == .orderedSame })
+            ?? allMobs.first(where: { $0.kind == .mob && $0.name.localizedCaseInsensitiveContains(j.mob) }) {
+            query = ""
+            select(row)
+            if row.target != nil {
+                cardAnchor = CGRect(x: canvasSize.width / 2, y: canvasSize.height / 2, width: 1, height: 1)
+                cardMob = row.name
+            }
+            MapJump.shared.clear()
+        } else if !allMobs.isEmpty {
+            // The zone is open but the catalog places no such row: leave the search saying why.
+            query = j.mob
+            MapJump.shared.clear()
+        }
     }
 
     private func placeLoc() {
