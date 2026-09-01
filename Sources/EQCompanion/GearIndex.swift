@@ -456,6 +456,12 @@ final class GearIndex {
 
         // The zone → era table, keyed by the same fold `GameData.zoneKey` uses so
         // `Chardok (Pre-Revamp)` and `THE PLANE OF SKY` land on their rows for free.
+        //
+        // Every spelling is registered under BOTH article variants: the zone roster says
+        // "The Plane of Fear" while the wiki's drop tables say "Plane of Fear", and that one
+        // missing word left thousands of drop rows unresolvable — whole armor sets (Umbral among
+        // them) verdicted `unknown` and hidden by the Current era toggle despite dropping in
+        // classic zones.
         var zoneEras: [String: String] = [:]
         if let d = try? Data(contentsOf: zonesURL), let z = try? JSONValue.parse(d) {
             for row in z["zones"].array ?? [] {
@@ -464,8 +470,18 @@ final class GearIndex {
                 spellings += (row["aliases"].array ?? []).compactMap(\.string)
                 spellings += (row["mobCatalogNames"].array ?? []).compactMap(\.string)
                 for s in spellings {
-                    let k = String(s.lowercased().filter { $0.isLetter || $0.isNumber })
-                    if !k.isEmpty && zoneEras[k] == nil { zoneEras[k] = era }
+                    let lowered = s.lowercased()
+                    let k = String(lowered.filter { $0.isLetter || $0.isNumber })
+                    if k.isEmpty { continue }
+                    var keys = [k]
+                    if lowered.split(whereSeparator: { $0.isWhitespace }).first == "the" {
+                        keys.append(String(k.dropFirst(3)))
+                    } else {
+                        keys.append("the" + k)
+                    }
+                    for key in keys where !key.isEmpty && zoneEras[key] == nil {
+                        zoneEras[key] = era
+                    }
                 }
             }
         }
