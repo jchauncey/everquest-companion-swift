@@ -49,3 +49,25 @@ public final class OutputFilesModule: EqModule {
 
     public func snapshot() -> JSONValue { ["seq": .int(seq), "state": written.json { .int($0) }] }
 }
+
+// MARK: - Checkpoint
+
+extension OutputFilesModule: FoldCheckpointable {
+    public func checkpointState() -> JSONValue {
+        .object([
+            "written": written.checkpoint { .int($0) },
+            "seq": .int(seq),
+            "announce": .int(announce.cursor),
+        ])
+    }
+
+    public func restoreCheckpoint(_ state: JSONValue) -> Bool {
+        reset()
+        guard let m = JSMap<Int64>.fromCheckpoint(state["written"], { $0.int64 }),
+              let savedSeq = state["seq"].int64, let cursor = state["announce"].int64 else { return false }
+        written = m
+        seq = savedSeq
+        announce.restore(cursor: cursor)
+        return true
+    }
+}

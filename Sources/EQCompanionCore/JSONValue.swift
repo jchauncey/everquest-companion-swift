@@ -32,6 +32,19 @@ public extension JSONValue {
 
     var isNull: Bool { if case .null = self { return true }; return false }
 
+    /// This value as a Swift optional: `.null` — which is also what subscripting an absent key
+    /// returns — reads as `nil`. THE TRAP THIS EXISTS FOR: `cond ? nil : someValue` does not mean
+    /// what it says, because JSONValue is ExpressibleByNilLiteral, so that `nil` resolves to
+    /// `.null` and an optional destination wraps it `.some(.null)` — present-but-null, a key the
+    /// original object never had. Spell absence with this accessor, never with a nil literal.
+    /// Spelled with an explicit `Optional.none`, not a ternary: `isNull ? nil : self` resolves the
+    /// `nil` through JSONValue's own nil-literal conformance and yields `.some(.null)` — the exact
+    /// wrong answer this accessor exists to prevent, produced by its own first draft.
+    var presentValue: JSONValue? {
+        if case .null = self { return Optional<JSONValue>.none }
+        return self
+    }
+
     var string: String? { if case .string(let s) = self { return s }; return nil }
 
     var bool: Bool? { if case .bool(let b) = self { return b }; return nil }

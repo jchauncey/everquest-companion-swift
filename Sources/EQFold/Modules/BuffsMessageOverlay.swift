@@ -303,6 +303,64 @@ public final class MessageOverlayMiner {
                       "contradictions": .int(contradictions), "unknown": .int(unknown)],
         ]
     }
+
+    // MARK: - Checkpoint
+
+    /// The whole accumulator, bucket structure intact: `sources` and each bucket's insertion order
+    /// are load-bearing (`verdictFor` reads the first `bySpell` entry unsorted), `current` names
+    /// the bucket the next observation lands in, and `recentCasts` is the association anchor a
+    /// checkpoint can land in the middle of. `facts` is a constructor dependency.
+    func checkpointState() -> JSONValue {
+        .object([
+            "sources": sources.checkpoint { bucket in
+                bucket.checkpoint { rec in
+                    .object(["text": .string(rec.text), "role": .string(rec.role),
+                             "bySpell": rec.bySpell.checkpoint {
+                                 .object(["display": .string($0.display), "count": .int($0.count)])
+                             }])
+                }
+            },
+            "current": .string(current),
+            "recentCasts": .array(recentCasts.map {
+                .object(["spellKey": .string($0.spellKey), "spellDisplay": .string($0.spellDisplay),
+                         "ts": .int($0.ts)])
+            }),
+            "lastObservedTs": .int(lastObservedTs),
+        ])
+    }
+
+    /// Replace every field wholesale — the miner has no `reset()`, and the module's own does not
+    /// clear it (mining is game knowledge), so the blob being the whole truth is enforced HERE.
+    /// Decode-then-apply: a malformed blob mutates nothing.
+    func restoreCheckpoint(_ v: JSONValue) -> Bool {
+        guard let src = JSMap<JSMap<MessageRecord>>.fromCheckpoint(v["sources"], { bucketV in
+            JSMap<MessageRecord>.fromCheckpoint(bucketV) { recV in
+                guard let text = recV["text"].string, let role = recV["role"].string,
+                      let by = JSMap<SpellCount>.fromCheckpoint(recV["bySpell"], { s in
+                          guard let display = s["display"].string, let count = s["count"].int64
+                          else { return nil }
+                          return SpellCount(display: display, count: count)
+                      }) else { return nil }
+                let rec = MessageRecord(text: text, role: role)
+                rec.bySpell = by
+                return rec
+            }
+        }),
+        let cur = v["current"].string, let last = v["lastObservedTs"].int64,
+        let castRows = v["recentCasts"].array else { return false }
+        var casts: [RecentCast] = []
+        casts.reserveCapacity(castRows.count)
+        for c in castRows {
+            guard let key = c["spellKey"].string, let display = c["spellDisplay"].string,
+                  let ts = c["ts"].int64 else { return false }
+            casts.append(RecentCast(spellKey: key, spellDisplay: display, ts: ts))
+        }
+        sources = src
+        current = cur
+        recentCasts = casts
+        lastObservedTs = last
+        return true
+    }
 }
 
 /// Add per-spell counts into a record, keyed canonically. The one place counts are combined.

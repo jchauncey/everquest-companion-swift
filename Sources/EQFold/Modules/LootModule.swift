@@ -80,3 +80,34 @@ public final class LootModule: EqModule {
 
     public func snapshot() -> JSONValue { ["seq": .int(seq), "state": .array(loot)] }
 }
+
+// MARK: - Checkpoint
+
+extension LootModule: FoldCheckpointable {
+    /// The whole truth, which is MORE than `snapshot()` publishes: `zone` is the label the next
+    /// row will carry and appears in no snapshot, and the announce cursor is what views resume
+    /// against. `rev` is deliberately absent — it is an in-process change signal, and a restore IS
+    /// a change (the restore bumps it locally rather than replaying an old count).
+    public func checkpointState() -> JSONValue {
+        var o: [String: JSONValue] = [
+            "loot": .array(loot),
+            "seq": .int(seq),
+            "announce": .int(announce.cursor),
+        ]
+        if let zone { o["zone"] = .string(zone) }
+        return .object(o)
+    }
+
+    public func restoreCheckpoint(_ state: JSONValue) -> Bool {
+        reset()
+        guard let rows = state["loot"].array,
+              let savedSeq = state["seq"].int64,
+              let cursor = state["announce"].int64 else { return false }
+        loot = rows
+        seq = savedSeq
+        zone = state["zone"].string
+        announce.restore(cursor: cursor)
+        rev += 1
+        return true
+    }
+}

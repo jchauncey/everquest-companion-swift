@@ -72,3 +72,27 @@ public final class LevelingModule: EqModule {
                    "aaSpends": .array(aaSpends), "aaPotions": .array(aaPotions)]]
     }
 }
+
+// MARK: - Checkpoint
+
+extension LevelingModule: FoldCheckpointable {
+    /// The four ledgers are already JSON rows, so the codec is the arrays themselves.
+    public func checkpointState() -> JSONValue {
+        .object([
+            "levels": .array(levels), "aaGains": .array(aaGains),
+            "aaSpends": .array(aaSpends), "aaPotions": .array(aaPotions),
+            "seq": .int(seq), "announce": .int(announce.cursor),
+        ])
+    }
+
+    public func restoreCheckpoint(_ state: JSONValue) -> Bool {
+        reset()
+        guard let l = state["levels"].array, let g = state["aaGains"].array,
+              let s = state["aaSpends"].array, let p = state["aaPotions"].array,
+              let savedSeq = state["seq"].int64, let cursor = state["announce"].int64 else { return false }
+        levels = l; aaGains = g; aaSpends = s; aaPotions = p
+        seq = savedSeq
+        announce.restore(cursor: cursor)
+        return true
+    }
+}

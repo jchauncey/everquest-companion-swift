@@ -236,3 +236,51 @@ public final class EventFeedModule: EqModule {
 
     public func installKnowledge(_ k: Knowledge) { knowledge = k }
 }
+
+// MARK: - Checkpoint
+
+extension EventFeedModule: FoldCheckpointable {
+    /// `idCounter` is row identity and must continue where it stopped — a resumed feed that reused
+    /// ids would collide in every reader keyed on them. `lastCon` is the con-dedupe clock; without
+    /// it the first con after resume duplicates a row the unbroken fold suppressed. The knowledge
+    /// handle is installed, not folded, and is not state.
+    public func checkpointState() -> JSONValue {
+        .object([
+            "feed": .array(feed.map(\.json)),
+            "seq": .int(seq),
+            "idCounter": .int(idCounter),
+            "lastCon": .object(Dictionary(uniqueKeysWithValues: lastCon.map { ($0.key, JSONValue.int($0.value)) })),
+            "announce": .int(announce.cursor),
+        ])
+    }
+
+    public func restoreCheckpoint(_ state: JSONValue) -> Bool {
+        reset()
+        guard let rows = state["feed"].array, let savedSeq = state["seq"].int64,
+              let counter = state["idCounter"].int64, let cons = state["lastCon"].object,
+              let cursor = state["announce"].int64 else { return false }
+        var decoded: [FeedEvent] = []
+        for r in rows {
+            guard let id = r["id"].string, let kind = r["kind"].string,
+                  let ts = r["ts"].int64, let title = r["title"].string else { return false }
+            var con: FeedConsider?
+            if case .object = r["con"] {
+                guard let faction = r["con"]["faction"].string, let rare = r["con"]["rare"].bool,
+                      let difficulty = r["con"]["difficulty"].string else { return false }
+                con = FeedConsider(faction: faction, level: r["con"]["level"].int64,
+                                   rare: rare, difficulty: difficulty)
+            }
+            decoded.append(FeedEvent(id: id, kind: kind, ts: ts, title: title,
+                                     detail: r["detail"].string, page: r["page"].string, con: con))
+        }
+        feed = decoded
+        seq = savedSeq
+        idCounter = counter
+        for (k, v) in cons {
+            guard let ts = v.int64 else { return false }
+            lastCon[k] = ts
+        }
+        announce.restore(cursor: cursor)
+        return true
+    }
+}

@@ -176,3 +176,56 @@ public final class StateTimeline {
         for (k, i) in open { open[k] = i > 0 ? i - 1 : 0 }
     }
 }
+
+// MARK: - Checkpoint
+
+extension StateTimeline {
+    /// The ring plus both live indices, explicitly — `open` and `active` are derivable from the open
+    /// spans, but explicit beats clever in a codec the oracle diffs field by field.
+    func checkpointState() -> JSONValue {
+        .object([
+            "spans": .array(spans.map { r -> JSONValue in
+                var o: [String: JSONValue] = [
+                    "kind": .string(r.span.kind.rawValue), "key": .string(r.span.key),
+                    "name": .string(r.span.name), "startTs": .int(r.span.startTs),
+                    "startEvidence": .string(r.span.startEvidence.rawValue),
+                    "endEvidence": .string(r.span.endEvidence.rawValue),
+                    "group": .string(r.group),
+                ]
+                if let endTs = r.span.endTs { o["endTs"] = .int(endTs) }
+                return .object(o)
+            }),
+            "open": .object(open.mapValues { .int(Int64($0)) }),
+            "active": ckStringSet(active),
+        ])
+    }
+
+    func restoreCheckpoint(_ v: JSONValue) -> Bool {
+        reset()
+        guard let rows = v["spans"].array, let openObj = v["open"].object,
+              let activeV = ckStringSetBack(v["active"]) else { reset(); return false }
+        var newSpans: [SpanRecord] = []
+        for r in rows {
+            guard let kind = StateKind(rawValue: r["kind"].string ?? ""),
+                  let key = r["key"].string, let name = r["name"].string,
+                  let startTs = r["startTs"].int64,
+                  let startEv = EdgeEvidence(rawValue: r["startEvidence"].string ?? ""),
+                  let endEv = EdgeEvidence(rawValue: r["endEvidence"].string ?? ""),
+                  let group = r["group"].string else { reset(); return false }
+            newSpans.append(SpanRecord(
+                span: StateSpan(kind: kind, key: key, name: name, startTs: startTs,
+                                endTs: r["endTs"].int64, startEvidence: startEv, endEvidence: endEv),
+                group: group))
+        }
+        var newOpen: [String: Int] = [:]
+        for (g, iv) in openObj {
+            // The index must point into the ring — a dangling one would crash a later `finish`.
+            guard let i = iv.int, i >= 0, i < newSpans.count else { reset(); return false }
+            newOpen[g] = i
+        }
+        spans = newSpans
+        open = newOpen
+        active = activeV
+        return true
+    }
+}

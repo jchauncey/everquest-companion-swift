@@ -52,3 +52,32 @@ public final class ClassUnlocksModule: EqModule {
 
     public func snapshot() -> JSONValue { ["seq": .int(seq), "state": .array(unlocks.map(\.json))] }
 }
+
+// MARK: - Checkpoint
+
+extension ClassUnlocksModule: FoldCheckpointable {
+    /// `seen` is derivable from `unlocks` (it is the lowercased names), and DERIVED STATE IS
+    /// REBUILT, NOT CARRIED: two copies of one fact can disagree, and a checkpoint is the worst
+    /// place to let them.
+    public func checkpointState() -> JSONValue {
+        .object([
+            "unlocks": .array(unlocks.map(\.json)),
+            "seq": .int(seq),
+            "announce": .int(announce.cursor),
+        ])
+    }
+
+    public func restoreCheckpoint(_ state: JSONValue) -> Bool {
+        reset()
+        guard let rows = state["unlocks"].array, let savedSeq = state["seq"].int64,
+              let cursor = state["announce"].int64 else { return false }
+        for r in rows {
+            guard let ts = r["ts"].int64, let name = r["className"].string else { return false }
+            unlocks.append(ClassUnlockRow(ts: ts, className: name))
+            seen.insert(name.lowercased())
+        }
+        seq = savedSeq
+        announce.restore(cursor: cursor)
+        return true
+    }
+}

@@ -647,3 +647,55 @@ final class AlertRuleSet: BreakWatchers {
         return nil
     }
 }
+
+// MARK: - Checkpoint
+
+extension AlertRuleSet {
+    /// Everything `alerts.define` installed plus what firing left behind. `rules` is deliberately
+    /// absent from the blob: a compiled rule holds `NSRegularExpression`s, which do not serialize —
+    /// so the SOURCE it was built from (`defs`, carried VERBATIM) is what the checkpoint carries,
+    /// and the restore rebuilds the compiled form through `setDefs`, the same compiler every push
+    /// goes through: same input, same compiler, same rules.
+    func checkpointState() -> JSONValue {
+        .object([
+            "defs": .array(defs),
+            // Order is state in both maps: `lastFire` iterates least-recently-fired first, which is
+            // exactly what the `cooldownKeyCap` eviction cuts on, and `history` publishes its rings
+            // in creation order. `JSMap.checkpoint` keeps both.
+            "lastFire": lastFire.checkpoint { .int($0) },
+            "history": historyRing.checkpoint { .array($0.map(\.json)) },
+        ])
+    }
+
+    /// Wipe EVERYTHING, defs included. `reset()` deliberately keeps the defs (user prefs) and the
+    /// history ring across a character switch; a checkpoint restore must not — the blob is the
+    /// whole truth, and a wiped set matches a freshly constructed module, which holds no defs until
+    /// `alerts.define` pushes some.
+    func checkpointReset() {
+        setDefs([])
+        lastFire.clear()
+        historyRing.clear()
+    }
+
+    /// Wipes first, decodes whole-or-nothing, and stays WIPED on a refusal, so the caller's `false`
+    /// never leaves half a blob standing.
+    func restoreCheckpoint(_ v: JSONValue) -> Bool {
+        checkpointReset()
+        guard let defList = v["defs"].array,
+              let fires = JSMap<Int64>.fromCheckpoint(v["lastFire"], { $0.int64 }),
+              let ring = JSMap<[FireRecord]>.fromCheckpoint(v["history"], { rows in
+                  guard let list = rows.array else { return nil }
+                  var out: [FireRecord] = []
+                  for r in list {
+                      guard let ts = r["ts"].int64, let text = r["matchedText"].string else { return nil }
+                      out.append(FireRecord(ts: ts, matchedText: text))
+                  }
+                  return out
+              }) else { return false }
+        // Recompiles `rules` from the carried source — see `checkpointState`.
+        setDefs(defList)
+        lastFire = fires
+        historyRing = ring
+        return true
+    }
+}

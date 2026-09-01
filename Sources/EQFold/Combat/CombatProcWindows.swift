@@ -155,6 +155,39 @@ public struct WindowAccum {
     }
 }
 
+// MARK: - Checkpoint
+
+extension WindowAccum {
+    /// The whole minute ledger, insertion order intact — the drop-oldest cap evicts the FIRST key
+    /// inserted, so the order is load-bearing state, not presentation.
+    func checkpointState() -> JSONValue {
+        .object(["windows": windows.checkpoint { w in
+            .object([
+                "minute": .int(w.minute), "activeMs": .int(w.activeMs), "swings": .int(w.swings),
+                "outDamage": .int(w.outDamage), "procDamage": .int(w.procDamage),
+                "transitionGroups": ckStringSet(w.transitionGroups),
+                "stateKeys": ckStringSet(w.stateKeys),
+            ])
+        }])
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> WindowAccum? {
+        guard let m = JSMap<ProcWindow>.fromCheckpoint(v["windows"], { w -> ProcWindow? in
+            guard let minute = w["minute"].int64, let activeMs = w["activeMs"].int64,
+                  let swings = w["swings"].int64, let outDamage = w["outDamage"].int64,
+                  let procDamage = w["procDamage"].int64,
+                  let transitionGroups = ckStringSetBack(w["transitionGroups"]),
+                  let stateKeys = ckStringSetBack(w["stateKeys"]) else { return nil }
+            return ProcWindow(minute: minute, activeMs: activeMs, swings: swings,
+                              outDamage: outDamage, procDamage: procDamage,
+                              transitionGroups: transitionGroups, stateKeys: stateKeys)
+        }) else { return nil }
+        var acc = WindowAccum()
+        acc.windows = m
+        return acc
+    }
+}
+
 /// The two arms of a matched-window comparison.
 public struct WindowArms {
     /// Windows where the state was on for the whole minute.

@@ -83,4 +83,24 @@ public final class SessionFrame {
         if fromTs == 0 { fromTs = lastEventTs }
         if quietMs >= BuffsShapes.sessionGapMs { isHole = true }
     }
+
+    // MARK: - Checkpoint
+
+    /// All four fields: a checkpoint can land INSIDE an open absence, and the resumed fold must
+    /// still rule on it — hold the same buffs, drop the same rows — when the far side arrives.
+    func checkpointState() -> JSONValue {
+        .object(["lastEventTs": .int(lastEventTs), "fromTs": .int(fromTs),
+                 "isHole": .bool(isHole), "explained": .bool(explained)])
+    }
+
+    func restoreCheckpoint(_ v: JSONValue) -> Bool {
+        reset()
+        guard let last = v["lastEventTs"].int64, let from = v["fromTs"].int64,
+              let hole = v["isHole"].bool, let exp = v["explained"].bool else { return false }
+        lastEventTs = last
+        fromTs = from
+        isHole = hole
+        explained = exp
+        return true
+    }
 }

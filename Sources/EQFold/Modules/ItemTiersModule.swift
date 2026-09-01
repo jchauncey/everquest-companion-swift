@@ -113,3 +113,30 @@ public final class ItemTiersModule: EqModule {
 
     public func snapshot() -> JSONValue { ["seq": .int(seq), "state": rows.json(\.json)] }
 }
+
+// MARK: - Checkpoint
+
+extension ItemTiersModule: FoldCheckpointable {
+    public func checkpointState() -> JSONValue {
+        .object([
+            "rows": rows.checkpoint(\.json),
+            "seq": .int(seq),
+            "announce": .int(announce.cursor),
+        ])
+    }
+
+    public func restoreCheckpoint(_ state: JSONValue) -> Bool {
+        reset()
+        guard let m = JSMap<ItemTierRow>.fromCheckpoint(state["rows"], { v in
+            guard let key = v["key"].string, let name = v["name"].string,
+                  let merges = v["merges"].int64, let first = v["firstAt"].int64,
+                  let last = v["lastAt"].int64 else { return nil }
+            return ItemTierRow(key: key, name: name, tier: v["tier"].int64, lastTier: v["lastTier"].int64,
+                               merges: merges, firstAt: first, lastAt: last)
+        }), let savedSeq = state["seq"].int64, let cursor = state["announce"].int64 else { return false }
+        rows = m
+        seq = savedSeq
+        announce.restore(cursor: cursor)
+        return true
+    }
+}

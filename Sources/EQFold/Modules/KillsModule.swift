@@ -208,3 +208,55 @@ private func isCountedKill(_ ev: Event) -> Bool {
     if let killer = ev.str(.killer), !killer.isEmpty { return !JSFn.startsWithYouWord(killer) }
     return true
 }
+
+// MARK: - Checkpoint
+
+extension KillsModule: FoldCheckpointable {
+    /// `pendingExpTs` is the experience line the NEXT kill line may claim, and `instances` is the
+    /// week-long instance memory — both unpublished, both exactly what a resume without them gets
+    /// wrong: the first kill after resume loses its exp credit, and an instanced zone reads as the
+    /// base one.
+    public func checkpointState() -> JSONValue {
+        var o: [String: JSONValue] = [
+            "kills": kills.checkpoint { info in
+                ["count": .int(info.count), "bestTier": .int(info.bestTier),
+                 "firstTs": .int(info.firstTs), "lastTs": .int(info.lastTs),
+                 "credited": .int(info.credited), "display": .string(info.display),
+                 "tiers": info.tiers.checkpoint(\.json)]
+            },
+            "seq": .int(seq),
+            "announce": .int(announce.cursor),
+            "instances": .object(Dictionary(uniqueKeysWithValues: instances.map { ($0.key, JSONValue.int($0.value)) })),
+        ]
+        if let zone { o["zone"] = .string(zone) }
+        if let p = pendingExpTs { o["pendingExpTs"] = .int(p) }
+        return .object(o)
+    }
+
+    public func restoreCheckpoint(_ state: JSONValue) -> Bool {
+        reset()
+        guard let m = JSMap<KillInfo>.fromCheckpoint(state["kills"], { v in
+            guard let count = v["count"].int64, let best = v["bestTier"].int64,
+                  let first = v["firstTs"].int64, let last = v["lastTs"].int64,
+                  let credited = v["credited"].int64, let display = v["display"].string,
+                  let tiers = JSMap<KillTierRun>.fromCheckpoint(v["tiers"], { t in
+                      guard let c = t["count"].int64, let f = t["firstTs"].int64, let l = t["lastTs"].int64,
+                            let cr = t["credited"].int64, let lc = t["lastCreditedTs"].int64 else { return nil }
+                      return KillTierRun(count: c, firstTs: f, lastTs: l, credited: cr, lastCreditedTs: lc)
+                  }) else { return nil }
+            return KillInfo(count: count, bestTier: best, firstTs: first, lastTs: last,
+                            credited: credited, display: display, tiers: tiers)
+        }), let savedSeq = state["seq"].int64, let cursor = state["announce"].int64,
+           let inst = state["instances"].object else { return false }
+        kills = m
+        zone = state["zone"].string
+        seq = savedSeq
+        pendingExpTs = state["pendingExpTs"].int64
+        for (k, v) in inst {
+            guard let ts = v.int64 else { return false }
+            instances[k] = ts
+        }
+        announce.restore(cursor: cursor)
+        return true
+    }
+}

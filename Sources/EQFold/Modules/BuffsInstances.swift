@@ -485,6 +485,62 @@ public final class BuffInstances {
             if disp == .charmed || disp == .hostile { pending = nil }
         }
     }
+
+    // MARK: - Checkpoint
+
+    /// The pending cast, the open pairing records (each with its full `HoldGroup`, round
+    /// bookkeeping included) and the active rows, all in map order — the order is published.
+    /// `expired` is deliberately NOT carried: the module drains it into its derived queue at the
+    /// end of every event and tick, so it is empty at any between-events checkpoint instant.
+    func checkpointState() -> JSONValue {
+        var o: [String: JSONValue] = [
+            "open": open.checkpoint { oc in
+                var r: [String: JSONValue] = [
+                    "spell": .string(oc.spell),
+                    "spellKey": .string(oc.spellKey),
+                    "entityKey": .string(oc.entityKey),
+                    "group": oc.group.checkpointState(),
+                    "caster": .string(oc.caster),
+                    "disp": .string(oc.disp.rawValue),
+                    "spannedGap": .bool(oc.spannedGap),
+                ]
+                if let c = oc.castName { r["castName"] = .string(c) }
+                return .object(r)
+            },
+            "active": active.checkpoint(\.json),
+        ]
+        if let p = pending {
+            var r: [String: JSONValue] = ["key": .string(p.key), "beganTs": .int(p.beganTs)]
+            if let e = p.emoteSubjectKey { r["emoteSubjectKey"] = .string(e) }
+            o["pending"] = .object(r)
+        }
+        return .object(o)
+    }
+
+    func restoreCheckpoint(_ v: JSONValue) -> Bool {
+        reset()
+        guard let openMap = JSMap<OpenCast>.fromCheckpoint(v["open"], { r in
+            guard let spell = r["spell"].string, let spellKey = r["spellKey"].string,
+                  let entityKey = r["entityKey"].string, let caster = r["caster"].string,
+                  let dispRaw = r["disp"].string, let disp = Disposition(rawValue: dispRaw),
+                  let spanned = r["spannedGap"].bool,
+                  let group = HoldGroup.fromCheckpoint(r["group"]) else { return nil }
+            return OpenCast(spell: spell, castName: r["castName"].string, spellKey: spellKey,
+                            entityKey: entityKey, group: group, caster: caster, disp: disp,
+                            spannedGap: spanned)
+        }),
+        let activeMap = JSMap<ActiveBuff>.fromCheckpoint(v["active"], ActiveBuff.fromCheckpoint)
+        else { return false }
+        if case .object = v["pending"] {
+            guard let key = v["pending"]["key"].string,
+                  let began = v["pending"]["beganTs"].int64 else { return false }
+            pending = Pending(key: key, beganTs: began,
+                              emoteSubjectKey: v["pending"]["emoteSubjectKey"].string)
+        }
+        open = openMap
+        active = activeMap
+        return true
+    }
 }
 
 /// The spec for re-projecting a row that is already live: everything the instance IS, carried

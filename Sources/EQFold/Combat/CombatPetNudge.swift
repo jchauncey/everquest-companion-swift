@@ -90,3 +90,27 @@ public final class PetNudgeState {
         return PetSummonNudge(summonedTs: armed, expiresTs: armed + NUDGE_GRACE_MS + NUDGE_SHOW_MS)
     }
 }
+
+// MARK: - Checkpoint
+
+extension PetNudgeState {
+    /// Both instants are LOG-clock — `noteSummonCast` stamps the event's ts and `sweep` receives the
+    /// fold's own `now` — so they restore verbatim rather than to reset. (The model is armed only
+    /// while live, so a scan-time checkpoint carries the reset values anyway.)
+    func checkpointState() -> JSONValue {
+        var o: [String: JSONValue] = ["lastIgnoredTs": .int(lastIgnoredTs)]
+        if let armedTs { o["armedTs"] = .int(armedTs) }
+        return .object(o)
+    }
+
+    func restoreCheckpoint(_ v: JSONValue) -> Bool {
+        reset()
+        guard let last = v["lastIgnoredTs"].int64 else { return false }
+        if let av = v["armedTs"].presentValue {
+            guard let a = av.int64 else { return false }
+            armedTs = a
+        }
+        lastIgnoredTs = last
+        return true
+    }
+}

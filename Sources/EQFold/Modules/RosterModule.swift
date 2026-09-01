@@ -388,3 +388,88 @@ public final class RosterModule: EqModule, Defines, RosterSource {
         snap().members.first { $0.key == key }?.name
     }
 }
+
+// MARK: - Checkpoint
+
+extension BuffFanOut {
+    /// The one-second cast bucket, mid-burst included: a checkpoint can land between two lines of
+    /// one group buff, and losing the bucket would read the resumed half as a fresh cast.
+    func checkpointState() -> JSONValue {
+        guard let b = bucket else { return .null }
+        return .object(["ts": .int(b.ts), "spell": .string(b.spell),
+                        "names": b.names.checkpoint { .string($0) },
+                        "announced": .bool(b.announced)])
+    }
+
+    mutating func restoreCheckpoint(_ v: JSONValue) -> Bool {
+        reset()
+        if v.isNull { return true }
+        guard let ts = v["ts"].int64, let spell = v["spell"].string, let ann = v["announced"].bool,
+              let names = JSMap<String>.fromCheckpoint(v["names"], { $0.string }) else { return false }
+        bucket = Bucket(ts: ts, spell: spell, names: names, announced: ann)
+        return true
+    }
+}
+
+extension RosterModule: FoldCheckpointable {
+    /// Everything `reset()` deliberately does NOT clear is still carried and still assigned on
+    /// restore — `neverMember` (which names are pets), `edits` (the app\'s own list), `epochTs`,
+    /// `leftTs`. Assignment replaces wholesale either way; the point of carrying them is that the
+    /// blob, not the pre-restore instance, is the truth. `selfKey` alone is constructor-owned: the
+    /// resumed world is built for the same character, and the world-level identity check owns that.
+    public func checkpointState() -> JSONValue {
+        .object([
+            "log": log.checkpoint(\.json),
+            "admitted": admittedKeys.checkpoint { .string($0) },
+            "seen": .bool(seen),
+            "lastSignalTs": .int(lastSignalTs),
+            "seq": .int(seq),
+            "announce": .int(announce.cursor),
+            "fanOut": fanOut.checkpointState(),
+            "partyExp": .bool(partyExp),
+            "neverMember": .array(neverMember.sorted().map { .string($0) }),
+            "edits": .array(edits.map {
+                .object(["key": .string($0.key), "name": .string($0.name),
+                         "add": .bool($0.add), "setAt": .int($0.setAt)])
+            }),
+            "epochTs": .int(epochTs),
+            "leftTs": .int(leftTs),
+        ])
+    }
+
+    public func restoreCheckpoint(_ state: JSONValue) -> Bool {
+        reset()
+        guard let members = JSMap<Member>.fromCheckpoint(state["log"], { v in
+            guard let key = v["key"].string, let name = v["name"].string,
+                  let source = v["source"].string, let since = v["sinceTs"].int64,
+                  let confirmed = v["lastConfirmedTs"].int64, let stale = v["stale"].bool else { return nil }
+            return Member(key: key, name: name, source: source, sinceTs: since,
+                          lastConfirmedTs: confirmed, stale: stale)
+        }),
+        let admitted = JSMap<String>.fromCheckpoint(state["admitted"], { $0.string }),
+        let seenV = state["seen"].bool, let signal = state["lastSignalTs"].int64,
+        let savedSeq = state["seq"].int64, let cursor = state["announce"].int64,
+        let party = state["partyExp"].bool, let never = state["neverMember"].array,
+        let editRows = state["edits"].array,
+        let epochT = state["epochTs"].int64, let leftT = state["leftTs"].int64,
+        fanOut.restoreCheckpoint(state["fanOut"]) else { return false }
+        log = members
+        admittedKeys = admitted
+        seen = seenV
+        lastSignalTs = signal
+        partyExp = party
+        neverMember = Set(never.compactMap(\.string))
+        var decodedEdits: [RosterEdit] = []
+        for e in editRows {
+            guard let key = e["key"].string, let name = e["name"].string,
+                  let add = e["add"].bool, let setAt = e["setAt"].int64 else { return false }
+            decodedEdits.append(RosterEdit(key: key, name: name, add: add, setAt: setAt))
+        }
+        edits = decodedEdits
+        epochTs = epochT
+        leftTs = leftT
+        seq = savedSeq
+        announce.restore(cursor: cursor)
+        return true
+    }
+}

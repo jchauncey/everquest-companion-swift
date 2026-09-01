@@ -324,4 +324,52 @@ public final class SpellStats {
         }
         return .object(stats)
     }
+
+    // MARK: - Checkpoint
+
+    /// The learner in full: every sample with its censoring flags (the estimator reads them), the
+    /// `everFaded` list IN ORDER (its order is what keeps two runs' `buildStats` diffable), the
+    /// witnessed wear-off channels, and the recency map. `everFadedAt` is not written — it is the
+    /// list's own dedupe index and is rebuilt from it. `db` is a constructor dependency.
+    func checkpointState() -> JSONValue {
+        .object([
+            "samples": samples.checkpoint { s in
+                .object(["spell": .string(s.spell),
+                         "samples": .array(s.samples.map {
+                             .object(["ms": .int($0.ms), "ts": .int($0.ts),
+                                      "censored": .bool($0.censored), "deathBound": .bool($0.deathBound)])
+                         })])
+            },
+            "everFaded": .array(everFaded.map { .string($0) }),
+            "wearOffWitnessed": .array(wearOffWitnessed.sorted().map { .string($0) }),
+            "lastSeen": lastSeen.checkpoint { .int($0) },
+        ])
+    }
+
+    func restoreCheckpoint(_ v: JSONValue) -> Bool {
+        reset()
+        guard let m = JSMap<SpellSamples>.fromCheckpoint(v["samples"], { row in
+            guard let spell = row["spell"].string, let list = row["samples"].array else { return nil }
+            let s = SpellSamples(spell: spell)
+            s.samples.reserveCapacity(list.count)
+            for x in list {
+                guard let ms = x["ms"].int64, let ts = x["ts"].int64,
+                      let censored = x["censored"].bool, let deathBound = x["deathBound"].bool else { return nil }
+                s.samples.append(DurationSample(ms: ms, ts: ts, censored: censored, deathBound: deathBound))
+            }
+            return s
+        }),
+        let fadedRows = v["everFaded"].array, let witnessedRows = v["wearOffWitnessed"].array,
+        let seen = JSMap<Int64>.fromCheckpoint(v["lastSeen"], { $0.int64 }) else { return false }
+        let faded = fadedRows.compactMap(\.string)
+        let witnessed = witnessedRows.compactMap(\.string)
+        guard faded.count == fadedRows.count, witnessed.count == witnessedRows.count else { return false }
+        samples = m
+        // Through `noteEverFaded` so the list and its dedupe index cannot disagree; the encoder
+        // never writes a duplicate, so the order comes back verbatim.
+        for key in faded { noteEverFaded(key) }
+        wearOffWitnessed = Set(witnessed)
+        lastSeen = seen
+        return true
+    }
 }

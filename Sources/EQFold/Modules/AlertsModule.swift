@@ -173,3 +173,64 @@ public final class AlertsModule: EqModule, Defines {
         announce.changed(seq)
     }
 }
+
+// MARK: - Checkpoint
+
+extension PoisonSlowRecency {
+    static func fromCheckpoint(_ v: JSONValue) -> PoisonSlowRecency? {
+        guard let lastAt = v["lastAt"].int64, let count = v["count"].int64,
+              let target = v["lastTarget"].string else { return nil }
+        return PoisonSlowRecency(lastAt: lastAt, count: count, lastTarget: target)
+    }
+}
+
+extension AlertsModule: FoldCheckpointable {
+    /// The two replay-built maps are the published half; the rest is firing machinery no snapshot
+    /// shows — the rule set's defs, cooldown clocks and history (`AlertsRules.swift`) and every
+    /// armed early warning (`AlertsEarly.swift`). `pending` is deliberately absent: it is the
+    /// outbox `takeFires()` drains after every delivery, so between events — where a checkpoint is
+    /// cut — it is empty by construction; like the contract's consumed announce edges, a drained
+    /// outbox is an in-process signal, not accumulated state.
+    public func checkpointState() -> JSONValue {
+        var o: [String: JSONValue] = [
+            "seq": .int(seq),
+            "announce": .int(announce.cursor),
+            // Iteration order is the LRU order the `spellCastCap` eviction cuts on, and
+            // `JSMap.checkpoint` keeps it.
+            "spellLastCast": spellLastCast.checkpoint { .int($0) },
+            "rules": rules.checkpointState(),
+            "early": early.checkpointState(),
+        ]
+        // Omitted rather than null, exactly as the snapshot spells it: an absent key IS "no slow
+        // has ever been observed".
+        if let p = poisonSlowSeen { o["poisonSlowSeen"] = p.json }
+        return .object(o)
+    }
+
+    public func restoreCheckpoint(_ state: JSONValue) -> Bool {
+        reset()
+        guard let casts = JSMap<Int64>.fromCheckpoint(state["spellLastCast"], { $0.int64 }),
+              let savedSeq = state["seq"].int64,
+              let cursor = state["announce"].int64 else { return false }
+        var poison: PoisonSlowRecency?
+        if case .object = state["poisonSlowSeen"] {
+            guard let p = PoisonSlowRecency.fromCheckpoint(state["poisonSlowSeen"]) else { return false }
+            poison = p
+        }
+        // The sub-objects wipe themselves before decoding and stay wiped on their own refusal; a
+        // LATER refusal wipes the earlier one again, so `false` never leaves half a blob standing
+        // (contract 3). Note the wipe is `checkpointReset`, not `reset()`: `reset()` keeps defs and
+        // history on purpose, and after a refused blob those must not survive either.
+        guard rules.restoreCheckpoint(state["rules"]) else { return false }
+        guard early.restoreCheckpoint(state["early"]) else {
+            rules.checkpointReset()
+            return false
+        }
+        spellLastCast = casts
+        poisonSlowSeen = poison
+        seq = savedSeq
+        announce.restore(cursor: cursor)
+        // `pending` stays empty — see `checkpointState` on the drain rule.
+        return true
+    }
+}

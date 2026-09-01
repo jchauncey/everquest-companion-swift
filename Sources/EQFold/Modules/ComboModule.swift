@@ -140,3 +140,73 @@ public final class ComboModule: EqModule, Defines {
         return ComboCorrection(startTs: startTs, endTs: endTs, classes: classes, setAt: setAt)
     }
 }
+
+// MARK: - Checkpoint
+
+extension ComboModule: FoldCheckpointable {
+    /// `corrections` are app-pushed defines and, like the roster\'s edits, survive `reset()` — the
+    /// blob still carries and reassigns them, because the blob is the truth. `rev` is the published
+    /// seq and is carried. `launchMs`/`spellClasses` are constructor deps and are not.
+    public func checkpointState() -> JSONValue {
+        .object([
+            "observations": .array(observations.map { o in
+                .object(["ts": .int(o.ts), "seq": .int(o.seq), "source": .string(o.source),
+                         "label": .string(o.label),
+                         "candidates": .array(o.candidates.map { .string($0) }),
+                         "weight": .double(o.weight)])
+            }),
+            "whoRows": .array(whoRows.map { w in
+                .object(["ts": .int(w.ts), "seq": .int(w.seq),
+                         "classes": .array(w.classes.map { .string($0) }), "level": .int(w.level)])
+            }),
+            "levels": .array(levels.map { .object(["ts": .int($0.ts), "level": .int($0.level)]) }),
+            "corrections": .array(corrections.map { c in
+                var o: [String: JSONValue] = ["startTs": .int(c.startTs),
+                                              "classes": .array(c.classes.map { .string($0) }),
+                                              "setAt": .int(c.setAt)]
+                if let e = c.endTs { o["endTs"] = .int(e) }
+                return .object(o)
+            }),
+            "rev": .int(rev),
+        ])
+    }
+
+    public func restoreCheckpoint(_ state: JSONValue) -> Bool {
+        reset()
+        guard let obs = state["observations"].array, let who = state["whoRows"].array,
+              let lvl = state["levels"].array, let corr = state["corrections"].array,
+              let savedRev = state["rev"].int64 else { return false }
+        var decodedObs: [ClassObservation] = []
+        for v in obs {
+            guard let ts = v["ts"].int64, let seq = v["seq"].int64, let source = v["source"].string,
+                  let label = v["label"].string, let cands = v["candidates"].array,
+                  let weight = v["weight"].double else { return false }
+            decodedObs.append(ClassObservation(ts: ts, seq: seq, source: source, label: label,
+                                               candidates: cands.compactMap(\.string), weight: weight))
+        }
+        var decodedWho: [WhoRow] = []
+        for v in who {
+            guard let ts = v["ts"].int64, let seq = v["seq"].int64,
+                  let classes = v["classes"].array, let level = v["level"].int64 else { return false }
+            decodedWho.append(WhoRow(ts: ts, seq: seq, classes: classes.compactMap(\.string), level: level))
+        }
+        var decodedLvl: [LevelPoint] = []
+        for v in lvl {
+            guard let ts = v["ts"].int64, let level = v["level"].int64 else { return false }
+            decodedLvl.append(LevelPoint(ts: ts, level: level))
+        }
+        var decodedCorr: [ComboCorrection] = []
+        for v in corr {
+            guard let start = v["startTs"].int64, let classes = v["classes"].array,
+                  let setAt = v["setAt"].int64 else { return false }
+            decodedCorr.append(ComboCorrection(startTs: start, endTs: v["endTs"].int64,
+                                               classes: classes.compactMap(\.string), setAt: setAt))
+        }
+        observations = decodedObs
+        whoRows = decodedWho
+        levels = decodedLvl
+        corrections = decodedCorr
+        rev = savedRev
+        return true
+    }
+}

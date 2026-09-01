@@ -165,3 +165,44 @@ public final class SpellSetsModule: EqModule {
 
     public func snapshot() -> JSONValue { ["seq": .int(seq), "state": state()] }
 }
+
+// MARK: - Checkpoint
+
+extension SpellSetsModule: FoldCheckpointable {
+    /// `pending` is a load burst that has not settled — unpublished, and exactly what a checkpoint
+    /// without it would corrupt: the settle after resume would never fire and the set would keep
+    /// its stale spell list.
+    public func checkpointState() -> JSONValue {
+        var o: [String: JSONValue] = [
+            "memorized": memorized.checkpoint { .string($0) },
+            "sets": sets.checkpoint(\.json),
+            "seq": .int(seq),
+            "announce": .int(announce.cursor),
+        ]
+        if let p = pending {
+            o["pending"] = .object(["set": .string(p.set), "lastActivityTs": .int(p.lastActivityTs)])
+        }
+        return .object(o)
+    }
+
+    public func restoreCheckpoint(_ state: JSONValue) -> Bool {
+        reset()
+        guard let mem = JSMap<String>.fromCheckpoint(state["memorized"], { $0.string }),
+              let defs = JSMap<SpellSetDef>.fromCheckpoint(state["sets"], { v in
+                  guard let spells = v["spells"].array, let at = v["observedAt"].int64,
+                        let src = v["source"].string else { return nil }
+                  return SpellSetDef(spells: spells.compactMap(\.string), observedAt: at, source: src)
+              }),
+              let savedSeq = state["seq"].int64, let cursor = state["announce"].int64 else { return false }
+        memorized = mem
+        sets = defs
+        if case .object = state["pending"] {
+            guard let name = state["pending"]["set"].string,
+                  let ts = state["pending"]["lastActivityTs"].int64 else { return false }
+            pending = PendingLoad(set: name, lastActivityTs: ts)
+        }
+        seq = savedSeq
+        announce.restore(cursor: cursor)
+        return true
+    }
+}

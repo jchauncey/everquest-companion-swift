@@ -12,6 +12,7 @@
 // alone. That is why nothing here is called a "player".
 import Foundation
 import EQLog
+import EQCompanionCore
 
 public final class OtherCombatants {
     /// nameKey → is it shaped like a player? Cached because the SHAPE of a name cannot change and
@@ -142,4 +143,59 @@ public func laneOfSpecial(_ skill: String) -> String? {
         return verb
     }
     return nil
+}
+
+// MARK: - Checkpoint
+
+extension OtherCombatants {
+    /// `shapes` is carried, not rebuilt: it is a first-answer-wins cache keyed by canonical key but
+    /// computed from the RAW spelling of the first sighting, and two spellings of one key can shape
+    /// differently — so it is not provably pure per key.
+    func checkpointState() -> JSONValue {
+        .object([
+            "shapes": .object(shapes.mapValues { .bool($0) }),
+            "pets": ckStringSet(pets),
+            "hostiles": ckStringSet(hostiles),
+            "seen": seen.checkpoint { .string($0) },
+        ])
+    }
+
+    func restoreCheckpoint(_ v: JSONValue) -> Bool {
+        reset()
+        guard let shapesObj = v["shapes"].object,
+              let petsV = ckStringSetBack(v["pets"]),
+              let hostilesV = ckStringSetBack(v["hostiles"]),
+              let seenV = JSMap<String>.fromCheckpoint(v["seen"], { $0.string }) else {
+            reset()
+            return false
+        }
+        var newShapes: [String: Bool] = [:]
+        for (k, val) in shapesObj {
+            guard let b = val.bool else { reset(); return false }
+            newShapes[k] = b
+        }
+        shapes = newShapes
+        pets = petsV
+        hostiles = hostilesV
+        seen = seenV
+        return true
+    }
+}
+
+extension SpecialAttacks {
+    func checkpointState() -> JSONValue {
+        .object(active.mapValues { .string($0) })
+    }
+
+    func restoreCheckpoint(_ v: JSONValue) -> Bool {
+        reset()
+        guard let obj = v.object else { return false }
+        var out: [String: String] = [:]
+        for (k, val) in obj {
+            guard let s = val.string else { return false }
+            out[k] = s
+        }
+        active = out
+        return true
+    }
 }

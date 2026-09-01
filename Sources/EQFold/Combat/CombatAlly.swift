@@ -16,6 +16,7 @@
 // Pure + clock-injected, like CombatCharm.swift.
 import Foundation
 import EQLog
+import EQCompanionCore
 
 /// What the evidence says this creature is, and therefore which endings apply to it.
 public enum AllyKind: Sendable {
@@ -347,5 +348,72 @@ public final class AllyCharms {
     private func pruneArms(_ now: Int64) {
         let stale = arms.pairs.filter { $0.1.until < now }.map(\.0)
         for k in stale { arms.remove(k) }
+    }
+}
+
+// MARK: - Checkpoint
+
+extension AllyCharms {
+    /// All four tables, `holdUntil` verbatim — `NO_CLOCK` (Int64.max) is an in-band value the codec
+    /// carries like any other, and every window here derives from log ts, never a wall clock.
+    func checkpointState() -> JSONValue {
+        .object([
+            "arms": arms.checkpoint { a in
+                .object(["charmerKey": .string(a.charmerKey), "charmer": .string(a.charmer),
+                         "spellKey": .string(a.spellKey), "ts": .int(a.ts), "until": .int(a.until)])
+            },
+            "binds": binds.checkpoint { b in
+                .object([
+                    "nameKey": .string(b.nameKey), "display": .string(b.display),
+                    "charmerKey": .string(b.charmerKey), "charmer": .string(b.charmer),
+                    "boundTs": .int(b.boundTs), "holdUntil": .int(b.holdUntil),
+                    "windowMs": .int(b.windowMs), "ambiguous": .bool(b.ambiguous),
+                    "via": .string(b.via == .cast ? "cast" : "leader"),
+                    "kind": .string(b.kind == .charm ? "charm" : "summon"),
+                ])
+            },
+            "friendlies": ckStringSet(friendlies),
+            "summons": ckInt64Dict(summons),
+        ])
+    }
+
+    func restoreCheckpoint(_ v: JSONValue) -> Bool {
+        reset()
+        guard let armsV = JSMap<AllyArm>.fromCheckpoint(v["arms"], { a -> AllyArm? in
+            guard let charmerKey = a["charmerKey"].string, let charmer = a["charmer"].string,
+                  let spellKey = a["spellKey"].string, let ts = a["ts"].int64,
+                  let until = a["until"].int64 else { return nil }
+            return AllyArm(charmerKey: charmerKey, charmer: charmer, spellKey: spellKey,
+                           ts: ts, until: until)
+        }),
+        let bindsV = JSMap<AllyBind>.fromCheckpoint(v["binds"], { b -> AllyBind? in
+            guard let nameKey = b["nameKey"].string, let display = b["display"].string,
+                  let charmerKey = b["charmerKey"].string, let charmer = b["charmer"].string,
+                  let boundTs = b["boundTs"].int64, let holdUntil = b["holdUntil"].int64,
+                  let windowMs = b["windowMs"].int64, let ambiguous = b["ambiguous"].bool
+            else { return nil }
+            let via: AllyVia
+            switch b["via"].string {
+            case "cast"?: via = .cast
+            case "leader"?: via = .leader
+            default: return nil
+            }
+            let kind: AllyKind
+            switch b["kind"].string {
+            case "charm"?: kind = .charm
+            case "summon"?: kind = .summon
+            default: return nil
+            }
+            return AllyBind(nameKey: nameKey, display: display, charmerKey: charmerKey,
+                            charmer: charmer, boundTs: boundTs, holdUntil: holdUntil,
+                            windowMs: windowMs, ambiguous: ambiguous, via: via, kind: kind)
+        }),
+        let friendliesV = ckStringSetBack(v["friendlies"]),
+        let summonsV = ckInt64DictBack(v["summons"]) else { reset(); return false }
+        arms = armsV
+        binds = bindsV
+        friendlies = friendliesV
+        summons = summonsV
+        return true
     }
 }

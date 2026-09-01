@@ -588,3 +588,129 @@ final class EarlyWarnings {
         return due
     }
 }
+
+// MARK: - Checkpoint
+
+extension EarlyWarnSubject {
+    var checkpointJson: JSONValue {
+        var o: [String: JSONValue] = ["spellNames": .array(spellNames.map { .string($0) })]
+        // Absent means the PLAYER — omitted rather than null, so absence stays a statement.
+        if let targetKey { o["targetKey"] = .string(targetKey) }
+        return .object(o)
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> EarlyWarnSubject? {
+        guard let raw = v["spellNames"].array else { return nil }
+        let names = raw.compactMap(\.string)
+        guard names.count == raw.count else { return nil }
+        return EarlyWarnSubject(targetKey: v["targetKey"].string, spellNames: names)
+    }
+}
+
+extension ArmedFire {
+    /// The frozen firing, words included — `captures` goes through the codec in
+    /// `AlertsCaptures.swift`, because those values ARE capture state and there is one codec for it.
+    var checkpointJson: JSONValue {
+        var o: [String: JSONValue] = [
+            "alertId": .string(alertId), "rule": .string(rule), "sound": .string(sound),
+            "message": .string(message), "captures": AlertCaptures.checkpointCaptures(captures),
+        ]
+        if let spell { o["spell"] = .string(spell) }
+        return .object(o)
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> ArmedFire? {
+        guard let alertId = v["alertId"].string, let rule = v["rule"].string,
+              let sound = v["sound"].string, let message = v["message"].string,
+              let captures = AlertCaptures.restoreCaptures(v["captures"]) else { return nil }
+        return ArmedFire(alertId: alertId, rule: rule, sound: sound, message: message,
+                         captures: captures, spell: v["spell"].string)
+    }
+}
+
+extension EarlyWarnArm {
+    var checkpointJson: JSONValue {
+        .object(["sec": .int(sec), "cooldownKey": .string(cooldownKey),
+                 "subject": subject.checkpointJson, "ts": .int(ts),
+                 "fired": fired.checkpointJson])
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> EarlyWarnArm? {
+        guard let sec = v["sec"].int64, let key = v["cooldownKey"].string,
+              let subject = EarlyWarnSubject.fromCheckpoint(v["subject"]),
+              let ts = v["ts"].int64,
+              let fired = ArmedFire.fromCheckpoint(v["fired"]) else { return nil }
+        return EarlyWarnArm(sec: sec, cooldownKey: key, subject: subject, ts: ts, fired: fired)
+    }
+}
+
+extension ArmedRow {
+    var checkpointJson: JSONValue {
+        .object(["arm": arm.checkpointJson, "rowId": .string(rowId)])
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> ArmedRow? {
+        guard let arm = EarlyWarnArm.fromCheckpoint(v["arm"]),
+              let rowId = v["rowId"].string else { return nil }
+        return ArmedRow(arm: arm, rowId: rowId)
+    }
+}
+
+extension BreakWatch {
+    /// `spoken` rides along: it is what suppresses the break line a fired warning pre-empted, and a
+    /// restore that dropped it would speak the same landing twice.
+    var checkpointJson: JSONValue {
+        .object(["alertId": .string(alertId), "rowId": .string(rowId),
+                 "landedTs": .int(landedTs), "sec": .int(sec),
+                 "cooldownKey": .string(cooldownKey), "fired": fired.checkpointJson,
+                 "identity": .array(identity.map { .string($0) }),
+                 "spoken": .bool(spoken)])
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> BreakWatch? {
+        guard let alertId = v["alertId"].string, let rowId = v["rowId"].string,
+              let landedTs = v["landedTs"].int64, let sec = v["sec"].int64,
+              let cooldownKey = v["cooldownKey"].string,
+              let fired = ArmedFire.fromCheckpoint(v["fired"]),
+              let rawIds = v["identity"].array, let spoken = v["spoken"].bool else { return nil }
+        let identity = rawIds.compactMap(\.string)
+        guard identity.count == rawIds.count else { return nil }
+        let w = BreakWatch(alertId: alertId, rowId: rowId, landedTs: landedTs, sec: sec,
+                           cooldownKey: cooldownKey, fired: fired, identity: identity)
+        w.spoken = spoken
+        return w
+    }
+}
+
+extension EarlyWarnings {
+    /// Every warning mid-wait — a checkpoint can land between the landing that armed a warning and
+    /// the deadline it speaks at, and a resume that lost it would let the deadline pass silently.
+    /// `pending` here is the arm QUEUE (requests still inside `armResolveWindowMs`, looking for
+    /// their row), NOT a drained outbox, so it is fold state and is carried. All three maps keep
+    /// their insertion order, which is what the oldest-first evictions cut on.
+    func checkpointState() -> JSONValue {
+        .object([
+            "pending": .array(pending.map(\.checkpointJson)),
+            "armed": armed.checkpoint(\.checkpointJson),
+            "breaks": breaks.checkpoint(\.checkpointJson),
+        ])
+    }
+
+    /// Resets first, decodes whole-or-nothing, and stays RESET on a refusal.
+    func restoreCheckpoint(_ v: JSONValue) -> Bool {
+        reset()
+        guard let pendingRows = v["pending"].array,
+              let armedMap = JSMap<ArmedRow>.fromCheckpoint(v["armed"], ArmedRow.fromCheckpoint),
+              let breakMap = JSMap<BreakWatch>.fromCheckpoint(v["breaks"], BreakWatch.fromCheckpoint)
+        else { return false }
+        var arms: [EarlyWarnArm] = []
+        for row in pendingRows {
+            guard let a = EarlyWarnArm.fromCheckpoint(row) else { return false }
+            arms.append(a)
+        }
+        pending = arms
+        armed = armedMap
+        breaks = breakMap
+        return true
+    }
+}

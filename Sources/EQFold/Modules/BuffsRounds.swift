@@ -18,6 +18,7 @@
 // its wear-off.
 // (fold/src/modules/buff_rounds.rs)
 import Foundation
+import EQCompanionCore
 
 /// One landing: an entity of this name we believe is still held, and whether it is measurable.
 public struct Hold {
@@ -144,5 +145,40 @@ public struct HoldGroup {
             }.map(\.element)
         }
         return changed
+    }
+
+    // MARK: - Checkpoint
+
+    /// The whole group, round bookkeeping included: `roundTs`/`roundUsed`/`roundStartCount` decide
+    /// whether the NEXT landing in the same log second refreshes or appends, so a checkpoint cut
+    /// mid-round must carry them or the resumed round re-counts from zero. `singleton` rides along
+    /// because it is `let` — the decoder rebuilds the group around it.
+    func checkpointState() -> JSONValue {
+        .object([
+            "singleton": .bool(singleton),
+            "holds": .array(holds.map { .object(["ts": .int($0.startedTs), "clean": .bool($0.clean)]) }),
+            "roundTs": .int(roundTs),
+            "roundUsed": .int(Int64(roundUsed)),
+            "roundStartCount": .int(Int64(roundStartCount)),
+        ])
+    }
+
+    /// Rebuild from `checkpointState()`. Nil for anything malformed — a half-group is not a group.
+    static func fromCheckpoint(_ v: JSONValue) -> HoldGroup? {
+        guard let singleton = v["singleton"].bool, let rows = v["holds"].array,
+              let roundTs = v["roundTs"].int64, let used = v["roundUsed"].int64,
+              let start = v["roundStartCount"].int64 else { return nil }
+        var out: [Hold] = []
+        out.reserveCapacity(rows.count)
+        for r in rows {
+            guard let ts = r["ts"].int64, let clean = r["clean"].bool else { return nil }
+            out.append(Hold(startedTs: ts, clean: clean))
+        }
+        var g = HoldGroup(singleton: singleton)
+        g.holds = out
+        g.roundTs = roundTs
+        g.roundUsed = Int(used)
+        g.roundStartCount = Int(start)
+        return g
     }
 }

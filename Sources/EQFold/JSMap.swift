@@ -52,6 +52,27 @@ public struct JSMap<V> {
         for i in entries.indices { f(&entries[i].1) }
     }
 
+    // MARK: - Checkpoint
+
+    /// The map for a checkpoint: an ARRAY of [key, value] pairs, because insertion order IS state
+    /// here — snapshots serialize in it, and a restore that lost it would publish rows reordered.
+    /// (`json(_:)` cannot be the codec: a JSON object forgets the order.)
+    public func checkpoint(_ enc: (V) -> JSONValue) -> JSONValue {
+        .array(entries.map { .array([.string($0.0), enc($0.1)]) })
+    }
+
+    /// Rebuild from `checkpoint(_:)`, order intact. Nil when any pair is malformed or any value
+    /// refuses to decode — a half-map is not a map.
+    public static func fromCheckpoint(_ v: JSONValue, _ dec: (JSONValue) -> V?) -> JSMap<V>? {
+        guard let rows = v.array else { return nil }
+        var m = JSMap<V>()
+        for row in rows {
+            guard let key = row[0].string, let value = dec(row[1]) else { return nil }
+            m.insert(key, value)
+        }
+        return m
+    }
+
     /// Serialize with a per-value encoder, in JS order.
     public func json(_ enc: (V) -> JSONValue) -> JSONValue {
         // JSONValue.object is a Swift dictionary; order is lost there, which is fine: deep equality

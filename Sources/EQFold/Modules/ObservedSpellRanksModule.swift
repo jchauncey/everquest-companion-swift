@@ -117,3 +117,46 @@ public final class ObservedSpellRanksModule: EqModule {
 
     public func snapshot() -> JSONValue { ["seq": .int(seq), "state": rows.json(\.json)] }
 }
+
+// MARK: - Checkpoint
+
+extension ObservedSpellRanksModule: FoldCheckpointable {
+    /// Rows in map order (the snapshot serializes them from it), the fold cursor, and the announce
+    /// cursor views resume against. `knownSpell` is the constructor's dependency — installed
+    /// knowledge, not folded state — and is deliberately absent.
+    public func checkpointState() -> JSONValue {
+        .object([
+            "rows": rows.checkpoint { row in
+                var o: [String: JSONValue] = ["key": .string(row.key), "name": .string(row.name),
+                                              "rank": .int(row.rank), "merges": .int(row.merges),
+                                              "firstAt": .int(row.firstAt), "lastAt": .int(row.lastAt)]
+                if let m = row.mergedRank { o["mergedRank"] = .int(m) }
+                if let c = row.castRank { o["castRank"] = .int(c) }
+                return .object(o)
+            },
+            "seq": .int(seq),
+            "announce": .int(announce.cursor),
+        ])
+    }
+
+    public func restoreCheckpoint(_ state: JSONValue) -> Bool {
+        reset()
+        guard let savedSeq = state["seq"].int64,
+              let cursor = state["announce"].int64,
+              let m = JSMap<ObservedSpellRankRow>.fromCheckpoint(state["rows"], { v in
+                  guard let key = v["key"].string, let name = v["name"].string,
+                        let rank = v["rank"].int64, let merges = v["merges"].int64,
+                        let firstAt = v["firstAt"].int64, let lastAt = v["lastAt"].int64
+                  else { return nil }
+                  return ObservedSpellRankRow(key: key, name: name, rank: rank, merges: merges,
+                                              firstAt: firstAt, lastAt: lastAt,
+                                              mergedRank: v["mergedRank"].int64,
+                                              castRank: v["castRank"].int64)
+              })
+        else { return false }
+        rows = m
+        seq = savedSeq
+        announce.restore(cursor: cursor)
+        return true
+    }
+}

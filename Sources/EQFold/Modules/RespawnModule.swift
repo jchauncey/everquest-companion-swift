@@ -546,3 +546,59 @@ extension RespawnModule: Defines {
         rev += 1
     }
 }
+
+// MARK: - Checkpoint
+
+extension RespawnModule: FoldCheckpointable {
+    /// `watchIndex` is derived from `prefs` and rebuilt, not carried — two copies of one fact.
+    /// `nowMsValue` is the wall clock and is NOT state: reset pins it back to the construction
+    /// instant, exactly where an unbroken historical fold holds it, and the first live tick after
+    /// a real resume refreshes it. `rev` IS carried: it is the published seq.
+    public func checkpointState() -> JSONValue {
+        .object([
+            "history": history.checkpoint { h in
+                var o: [String: JSONValue] = [
+                    "key": .string(h.key), "display": .string(h.display), "zone": .string(h.zone),
+                    "lastTs": .int(h.lastTs), "samples": .int(h.samples),
+                    "gaps": .array(h.gaps.map { .int($0) }), "kills": .int(h.kills),
+                ]
+                if let m = h.minGapMs { o["minGapMs"] = .int(m) }
+                if let t = h.seenTs { o["seenTs"] = .int(t) }
+                if let v = h.seenVia { o["seenVia"] = .string(v) }
+                if let p = h.seenPubTs { o["seenPubTs"] = .int(p) }
+                if let c = h.confirmedTs { o["confirmedTs"] = .int(c) }
+                return .object(o)
+            },
+            "zone": .string(zone),
+            "zoneSince": .int(zoneSince),
+            "prefs": prefs.json,
+            "rev": .int(rev),
+        ])
+    }
+
+    public func restoreCheckpoint(_ state: JSONValue) -> Bool {
+        reset()
+        guard let m = JSMap<MobHistory>.fromCheckpoint(state["history"], { v in
+            guard let key = v["key"].string, let display = v["display"].string,
+                  let zone = v["zone"].string, let lastTs = v["lastTs"].int64,
+                  let samples = v["samples"].int64, let gapsArr = v["gaps"].array,
+                  let kills = v["kills"].int64 else { return nil }
+            var gaps: [Int64] = []
+            for g in gapsArr { guard let n = g.int64 else { return nil }; gaps.append(n) }
+            return MobHistory(key: key, display: display, zone: zone, lastTs: lastTs,
+                              minGapMs: v["minGapMs"].int64, samples: samples, gaps: gaps,
+                              kills: kills, seenTs: v["seenTs"].int64, seenVia: v["seenVia"].string,
+                              seenPubTs: v["seenPubTs"].int64, confirmedTs: v["confirmedTs"].int64)
+        }),
+        let zoneV = state["zone"].string, let since = state["zoneSince"].int64,
+        let savedRev = state["rev"].int64,
+        let savedPrefs = RespawnPrefs.read(state["prefs"]) else { return false }
+        history = m
+        zone = zoneV
+        zoneSince = since
+        prefs = savedPrefs
+        reindexWatches()
+        rev = savedRev
+        return true
+    }
+}

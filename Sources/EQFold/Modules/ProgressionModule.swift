@@ -416,3 +416,92 @@ public final class ProgressionModule: EqModule {
     /// The view pull seam.
     public var asProgression: ProgressionModule? { self }
 }
+
+// MARK: - Checkpoint
+
+private func ckInts(_ v: JSONValue) -> [Int64]? {
+    guard let a = v.array else { return nil }
+    var out: [Int64] = []
+    out.reserveCapacity(a.count)
+    for x in a { guard let n = x.int64 else { return nil }; out.append(n) }
+    return out
+}
+
+extension ProgressionModule: FoldCheckpointable {
+    /// The three claim/charm sets and the pending exp are the unpublished half: `claimed` is what
+    /// keeps one death from crediting twice, `charmed`/`everCharmed` decide whose kill a charmed
+    /// pet\'s is, and `pendingExp` is the exp line the next kill line will claim.
+    public func checkpointState() -> JSONValue {
+        var o: [String: JSONValue] = [
+            "snap": s.json,
+            "seq": .int(seq),
+            "announce": .int(announce.cursor),
+            "dropped": .array([.int(droppedBy.exp), .int(droppedBy.kill), .int(droppedBy.witness),
+                               .int(droppedBy.loot), .int(droppedBy.zone), .int(droppedBy.offline)]),
+            "claimed": .array(claimed.sorted().map { .string($0) }),
+            "charmed": .array(charmed.sorted().map { .string($0) }),
+            "everCharmed": .array(everCharmed.sorted().map { .string($0) }),
+        ]
+        if let p = pendingExp {
+            var pe: [String: JSONValue] = ["ts": .int(p.ts), "party": .bool(p.party)]
+            if let pct = p.pct { pe["pct"] = .double(pct) }
+            o["pendingExp"] = .object(pe)
+        }
+        return .object(o)
+    }
+
+    public func restoreCheckpoint(_ state: JSONValue) -> Bool {
+        reset()
+        let v = state["snap"]
+        guard let expTs = ckInts(v["expTs"]), let expFlag = ckInts(v["expFlag"]),
+              let killTs = ckInts(v["killTs"]), let killZone = ckInts(v["killZone"]),
+              let killCredit = ckInts(v["killCredit"]), let witnessTs = ckInts(v["witnessTs"]),
+              let lootTs = ckInts(v["lootTs"]), let zoneStart = ckInts(v["zoneStart"]),
+              let zoneEnd = ckInts(v["zoneEnd"]), let offlineStart = ckInts(v["offlineStart"]),
+              let offlineEnd = ckInts(v["offlineEnd"]), let offlineCamped = ckInts(v["offlineCamped"]),
+              let levelTs = ckInts(v["levelTs"]), let levelValue = ckInts(v["levelValue"]),
+              let aaGainTs = ckInts(v["aaGainTs"]), let aaGainAmount = ckInts(v["aaGainAmount"]),
+              let expPct = v["expPct"].array, let zoneName = v["zoneName"].array,
+              let recent = v["recentKills"].array,
+              let lastTs = v["lastTs"].int64, let windowStart = v["windowStart"].int64,
+              let droppedCount = v["dropped"].int64,
+              let fronts = state["dropped"].array, fronts.count == 6,
+              let savedSeq = state["seq"].int64, let cursor = state["announce"].int64,
+              let claimedArr = state["claimed"].array, let charmedArr = state["charmed"].array,
+              let everArr = state["everCharmed"].array else { return false }
+        var snap = Snap()
+        snap.expTs = expTs
+        snap.expPct = expPct.compactMap(\.double)
+        snap.expFlag = expFlag
+        snap.killTs = killTs; snap.killZone = killZone; snap.killCredit = killCredit
+        snap.witnessTs = witnessTs; snap.lootTs = lootTs
+        snap.zoneStart = zoneStart; snap.zoneEnd = zoneEnd
+        snap.zoneName = zoneName.compactMap(\.string)
+        snap.offlineStart = offlineStart; snap.offlineEnd = offlineEnd; snap.offlineCamped = offlineCamped
+        snap.levelTs = levelTs; snap.levelValue = levelValue
+        snap.aaGainTs = aaGainTs; snap.aaGainAmount = aaGainAmount
+        snap.lastTs = lastTs; snap.windowStart = windowStart; snap.dropped = droppedCount
+        for r in recent {
+            guard let ts = r["ts"].int64, let name = r["name"].string,
+                  let credit = r["credit"].int64, let zone = r["zone"].string else { return false }
+            snap.recentKills.append(ProgressionKill(ts: ts, name: name, credit: credit, zone: zone,
+                                                    expFlag: r["expFlag"].int64, expPct: r["expPct"].double))
+        }
+        guard snap.expPct.count == expPct.count, snap.zoneName.count == zoneName.count else { return false }
+        s = snap
+        droppedBy = DropFront(exp: fronts[0].int64 ?? 0, kill: fronts[1].int64 ?? 0,
+                              witness: fronts[2].int64 ?? 0, loot: fronts[3].int64 ?? 0,
+                              zone: fronts[4].int64 ?? 0, offline: fronts[5].int64 ?? 0)
+        claimed = Set(claimedArr.compactMap(\.string))
+        charmed = Set(charmedArr.compactMap(\.string))
+        everCharmed = Set(everArr.compactMap(\.string))
+        if case .object = state["pendingExp"] {
+            guard let ts = state["pendingExp"]["ts"].int64,
+                  let party = state["pendingExp"]["party"].bool else { return false }
+            pendingExp = PendingExp(ts: ts, pct: state["pendingExp"]["pct"].double, party: party)
+        }
+        seq = savedSeq
+        announce.restore(cursor: cursor)
+        return true
+    }
+}

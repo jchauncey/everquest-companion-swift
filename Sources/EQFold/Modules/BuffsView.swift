@@ -164,3 +164,60 @@ public func buildActive(_ spec: ActiveSpec, _ stats: SpellStats, _ pets: PetEnti
         caster: caster != BuffsShapes.selfCaster ? caster : nil,
         candidates: spec.candidates)
 }
+
+// MARK: - Checkpoint
+
+extension ActiveBuff {
+    /// Decode a row its own `json` encoded. `json` is a lossless codec here: every optional field
+    /// is skipped when absent, every nullable one is written as `null`, and no two states collapse
+    /// into one spelling — so the checkpoint reuses it and only the decoder is new.
+    static func fromCheckpoint(_ v: JSONValue) -> ActiveBuff? {
+        guard let spell = v["spell"].string, let clsRaw = v["cls"].string,
+              let cls = BuffClass(rawValue: clsRaw), let isSelf = v["self"].bool,
+              let startedTs = v["startedTs"].int64, let n = v["n"].int64 else { return nil }
+        var disposition: Disposition?
+        if let s = v["disposition"].string {
+            guard let d = Disposition(rawValue: s) else { return nil }
+            disposition = d
+        }
+        var durationSource: EstimatorSource?
+        if let s = v["durationSource"].string {
+            guard let d = EstimatorSource(rawValue: s) else { return nil }
+            durationSource = d
+        }
+        var overlaySource: EstimatorSource?
+        if let s = v["overlaySource"].string {
+            guard let d = EstimatorSource(rawValue: s) else { return nil }
+            overlaySource = d
+        }
+        var candidates: [String]?
+        if let rows = v["candidates"].array {
+            let names = rows.compactMap(\.string)
+            guard names.count == rows.count else { return nil }
+            candidates = names
+        }
+        return ActiveBuff(
+            spell: spell,
+            castName: v["castName"].string,
+            cls: cls,
+            calmsTarget: v["calmsTarget"].bool,
+            isSelf: isSelf,
+            disposition: disposition,
+            startedTs: startedTs,
+            estimatedMs: v["estimatedMs"].int64,
+            p25: v["p25"].double,
+            p75: v["p75"].double,
+            n: n,
+            target: v["target"].string,
+            inferredTarget: v["inferredTarget"].bool,
+            durationSource: durationSource,
+            overlayDurationMs: v["overlayDurationMs"].int64,
+            overlaySource: overlaySource,
+            permanent: v["permanent"].bool,
+            permanentSource: v["permanentSource"].string,
+            messageDriven: v["messageDriven"].bool,
+            count: v["count"].int64,
+            caster: v["caster"].string,
+            candidates: candidates)
+    }
+}

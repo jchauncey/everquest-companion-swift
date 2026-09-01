@@ -135,4 +135,41 @@ public final class CastAnchors {
 
     /// The newest ts YOU ever cast this line — the ambiguous-apply recency tiebreak.
     public func lastCastTs(_ spell: String) -> Int64? { everCast[BuffsShapes.spellKey(spell)] }
+
+    // MARK: - Checkpoint
+
+    /// Everything, `externals` included: the allowlist is app-pushed define state `reset()`
+    /// deliberately keeps, and the blob is the whole truth on restore (the RosterModule `edits`
+    /// rule). A set has no order, so it is written sorted, which is also what keeps the re-encode
+    /// byte-stable.
+    func checkpointState() -> JSONValue {
+        .object([
+            "byLine": byLine.checkpoint { a in
+                .object(["display": .string(a.display), "ts": .int(a.ts),
+                         "caster": .string(a.caster), "rankChanged": .bool(a.rankChanged)])
+            },
+            "everCast": everCast.checkpoint { .int($0) },
+            "quickBuffTs": .int(quickBuffTs),
+            "externals": .array(externals.sorted().map { .string($0) }),
+        ])
+    }
+
+    func restoreCheckpoint(_ v: JSONValue) -> Bool {
+        reset()
+        guard let lines = JSMap<CastAnchor>.fromCheckpoint(v["byLine"], { a in
+            guard let display = a["display"].string, let ts = a["ts"].int64,
+                  let caster = a["caster"].string, let rank = a["rankChanged"].bool else { return nil }
+            return CastAnchor(display: display, ts: ts, caster: caster, rankChanged: rank)
+        }),
+        let ever = JSMap<Int64>.fromCheckpoint(v["everCast"], { $0.int64 }),
+        let quick = v["quickBuffTs"].int64,
+        let ext = v["externals"].array else { return false }
+        let extKeys = ext.compactMap(\.string)
+        guard extKeys.count == ext.count else { return false }
+        byLine = lines
+        everCast = ever
+        quickBuffTs = quick
+        externals = Set(extKeys)
+        return true
+    }
 }

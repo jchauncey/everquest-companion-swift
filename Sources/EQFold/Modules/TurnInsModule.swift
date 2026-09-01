@@ -74,3 +74,40 @@ public final class TurnInsModule: EqModule {
 
     public func snapshot() -> JSONValue { ["seq": .int(seq), "state": .array(turnIns.map(\.json))] }
 }
+
+// MARK: - Checkpoint
+
+extension TurnInsModule: FoldCheckpointable {
+    /// `pendingOffer` is the unpublished half and the reason a checkpoint is more than the
+    /// snapshot: items already handed to an NPC whose trade has not closed. Dropping it would
+    /// silently lose the turn-in the closing trade completes.
+    public func checkpointState() -> JSONValue {
+        var o: [String: JSONValue] = [
+            "turnIns": .array(turnIns.map(\.json)),
+            "seq": .int(seq),
+            "announce": .int(announce.cursor),
+        ]
+        if let p = pendingOffer {
+            o["pending"] = .object(["npc": .string(p.npc), "items": .array(p.items.map { .string($0) })])
+        }
+        return .object(o)
+    }
+
+    public func restoreCheckpoint(_ state: JSONValue) -> Bool {
+        reset()
+        guard let rows = state["turnIns"].array, let savedSeq = state["seq"].int64,
+              let cursor = state["announce"].int64 else { return false }
+        var decoded: [TurnInRow] = []
+        for r in rows {
+            guard let ts = r["ts"].int64, let npc = r["npc"].string, let items = r["items"].array else { return false }
+            decoded.append(TurnInRow(ts: ts, npc: npc, items: items.compactMap(\.string)))
+        }
+        turnIns = decoded
+        if let p = state["pending"].object, let npc = p["npc"]?.string {
+            pendingOffer = PendingOffer(npc: npc, items: (p["items"]?.array ?? []).compactMap(\.string))
+        }
+        seq = savedSeq
+        announce.restore(cursor: cursor)
+        return true
+    }
+}

@@ -301,3 +301,18 @@ func slowRollup(_ st: EngineState) -> SlowRollup {
 /// `Math.round` — round half UP, which is not `f64::round` (half away from zero). They differ only
 /// for negatives; stated so a later reader does not "simplify" it.
 func jsRound(_ v: Double) -> Int64 { Int64((v + 0.5).rounded(.down)) }
+
+// MARK: - Checkpoint
+
+extension CombatEngine: FoldCheckpointable {
+    /// The whole engine is the one `EngineState`, so the codec is the state's; the per-model codecs
+    /// live beside the private fields they capture (world, charm, ally, others, timelines, ledgers).
+    ///
+    /// `playerName` is deliberately NOT carried: it is attach-time injection (`setPlayerName`), the
+    /// one constructor-style dependency, and every attach re-injects it after a restore. What events
+    /// MUTATE is the state's own `playerKey` / `playerKeyInjected` / `knownPlayers` (the heal-learned
+    /// fallback), and those the blob carries.
+    public func checkpointState() -> JSONValue { st.checkpointState() }
+
+    public func restoreCheckpoint(_ state: JSONValue) -> Bool { st.restoreCheckpoint(state) }
+}

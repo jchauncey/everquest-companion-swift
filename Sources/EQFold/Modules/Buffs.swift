@@ -527,6 +527,78 @@ extension BuffsModule: Defines {
     }
 }
 
+// MARK: - Checkpoint
+
+extension BuffsCore {
+    /// The shared halves, checkpointed EXACTLY ONCE. Both buff modules hold this one object, so
+    /// exactly one of them may own its codec: `BuffsModule` does (its blob embeds this one), and
+    /// `BuffTimersModule` carries none of it. Registration order — buffs before buffTimers — is
+    /// restore order, so the core is already restored by the time the timers module restores, and
+    /// that module's `reset()`/restore never touch it.
+    func checkpointState() -> JSONValue {
+        .object(["anchors": anchors.checkpointState(), "stats": stats.checkpointState()])
+    }
+
+    func restoreCheckpoint(_ v: JSONValue) -> Bool {
+        anchors.restoreCheckpoint(v["anchors"]) && stats.restoreCheckpoint(v["stats"])
+    }
+}
+
+extension BuffsModule: FoldCheckpointable {
+    /// The whole buff system, most of it living in the collaborators, each with its own codec:
+    /// the shared core (anchors + learner — owned HERE, see `BuffsCore`), the pet identity slots,
+    /// the instance store (pending / open / active), the session frame (an open log hole survives
+    /// a checkpoint), the message-overlay mining (game knowledge `reset()` keeps — carried and
+    /// replaced wholesale, the RosterModule rule), the emote-repetition counts, and the AA stamp.
+    ///
+    /// `curSeq`/`curTs` are carried although `reset()` keeps them: they stamp the `buffExpired`
+    /// a wall-clock tick synthesizes, so a resumed world's first tick must stamp what the
+    /// uninterrupted world's would. NOT carried: `derived` and the store's `expired` (both
+    /// drained per event delivery, so empty at any checkpoint instant) and `facts` (a dep).
+    public func checkpointState() -> JSONValue {
+        var o: [String: JSONValue] = [
+            "seq": .int(seq),
+            "announce": .int(announce.cursor),
+            "curSeq": .int(curSeq),
+            "curTs": .int(curTs),
+            "core": core.checkpointState(),
+            "pets": pets.checkpointState(),
+            "instances": inst.checkpointState(),
+            "frame": frame.checkpointState(),
+            "mining": mining.checkpointState(),
+            "emoteTextCount": emoteTextCount.checkpoint { .int($0) },
+        ]
+        if let p = permanentIllusionOwnedTs { o["permanentIllusionOwnedTs"] = .int(p) }
+        return .object(o)
+    }
+
+    public func restoreCheckpoint(_ state: JSONValue) -> Bool {
+        reset()
+        guard let savedSeq = state["seq"].int64, let cursor = state["announce"].int64,
+              let savedCurSeq = state["curSeq"].int64, let savedCurTs = state["curTs"].int64,
+              let emotes = JSMap<Int64>.fromCheckpoint(state["emoteTextCount"], { $0.int64 }),
+              core.restoreCheckpoint(state["core"]),
+              pets.restoreCheckpoint(state["pets"]),
+              inst.restoreCheckpoint(state["instances"]),
+              frame.restoreCheckpoint(state["frame"]),
+              // Last in the chain, and atomic (decode-then-apply): the `reset()` below cannot
+              // un-apply it, and nothing after it can fail.
+              mining.restoreCheckpoint(state["mining"]) else {
+            // A sub-restore may have applied before a later one refused; leave the module RESET,
+            // not half-applied.
+            reset()
+            return false
+        }
+        seq = savedSeq
+        curSeq = savedCurSeq
+        curTs = savedCurTs
+        permanentIllusionOwnedTs = state["permanentIllusionOwnedTs"].int64
+        emoteTextCount = emotes
+        announce.restore(cursor: cursor)
+        return true
+    }
+}
+
 /// The `buffApply` candidate shape.
 private func candidatesOf(_ ev: Event) -> [Candidate] {
     ev.candidates(.candidates).map { Candidate(name: $0.name, durationMs: $0.durationMs, illusion: $0.illusion) }

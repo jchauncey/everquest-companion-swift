@@ -343,3 +343,96 @@ public final class ConsiderModule: EqModule {
     /// `fold::modules::consider::mob_key`.
     public static func mobKey(_ name: String) -> String { mobKeyImpl(name) }
 }
+
+// MARK: - Checkpoint
+
+extension OwnLootIndex {
+    /// mob key -> item key -> (spelling, count, lastTs). Plain dictionaries, because this is a
+    /// LOOKUP: nothing publishes its order, so none is preserved.
+    func checkpointState() -> JSONValue {
+        var mobs: [String: JSONValue] = [:]
+        for (mob, items) in byMob {
+            var o: [String: JSONValue] = [:]
+            for (key, entry) in items {
+                o[key] = .array([.string(entry.0), .int(entry.1), .int(entry.2)])
+            }
+            mobs[mob] = .object(o)
+        }
+        return .object(mobs)
+    }
+
+    func restoreCheckpoint(_ state: JSONValue) -> Bool {
+        reset()
+        guard let mobs = state.object else { return false }
+        for (mob, items) in mobs {
+            guard let entries = items.object else { return false }
+            var decoded: [String: (String, Int64, Int64)] = [:]
+            for (key, triple) in entries {
+                guard let spelling = triple[0].string, let count = triple[1].int64,
+                      let ts = triple[2].int64 else { return false }
+                decoded[key] = (spelling, count, ts)
+            }
+            byMob[mob] = decoded
+        }
+        return true
+    }
+}
+
+extension ConsiderModule: FoldCheckpointable {
+    /// Not carried, on purpose: `cons` is an outbox the sink drains after every event, so a
+    /// checkpoint taken at an event boundary holds an empty one (the contract's rule on drains);
+    /// and the knowledge handle is installed at construction, not folded.
+    public func checkpointState() -> JSONValue {
+        var o: [String: JSONValue] = [
+            "ring": .array(ring.map(\.checkpoint)),
+            "seq": .int(seq),
+            "announce": .int(announce.cursor),
+            "ownLoot": ownLoot.checkpointState(),
+            "backfilled": .bool(backfilled),
+        ]
+        if let zone { o["zone"] = .string(zone) }
+        return .object(o)
+    }
+
+    public func restoreCheckpoint(_ state: JSONValue) -> Bool {
+        reset()
+        guard let rows = state["ring"].array, let savedSeq = state["seq"].int64,
+              let cursor = state["announce"].int64, let back = state["backfilled"].bool,
+              ownLoot.restoreCheckpoint(state["ownLoot"]) else { return false }
+        var decoded: [ConsiderRow] = []
+        for r in rows {
+            guard let row = ConsiderRow(checkpoint: r) else { return false }
+            decoded.append(row)
+        }
+        ring = decoded
+        zone = state["zone"].string
+        seq = savedSeq
+        backfilled = back
+        announce.restore(cursor: cursor)
+        return true
+    }
+}
+
+extension ConsiderRow {
+    /// The row, whole — including the per-mob `knowledge` enrichment a live fold may have added,
+    /// which `snapshot()` publishes and a resumed world therefore has to keep.
+    var checkpoint: JSONValue {
+        var o: [String: JSONValue] = [
+            "id": .string(id), "mob": .string(mob), "ts": .int(ts), "rare": .bool(rare),
+            "faction": .string(faction), "difficulty": .string(difficulty), "cons": .int(cons),
+        ]
+        if let level { o["level"] = .int(level) }
+        if let zone { o["zone"] = .string(zone) }
+        if let knowledge { o["knowledge"] = knowledge }
+        return .object(o)
+    }
+
+    init?(checkpoint v: JSONValue) {
+        guard let id = v["id"].string, let mob = v["mob"].string, let ts = v["ts"].int64,
+              let rare = v["rare"].bool, let faction = v["faction"].string,
+              let difficulty = v["difficulty"].string, let cons = v["cons"].int64 else { return nil }
+        self.init(id: id, mob: mob, ts: ts, rare: rare, level: v["level"].int64,
+                  faction: faction, difficulty: difficulty, zone: v["zone"].string,
+                  cons: cons, knowledge: v["knowledge"].presentValue)
+    }
+}

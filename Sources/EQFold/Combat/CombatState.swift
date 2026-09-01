@@ -490,3 +490,236 @@ public func nameKeyOf(_ instanceId: String) -> String? {
     if hash == instanceId.startIndex { return nil }
     return String(instanceId[instanceId.startIndex..<hash])
 }
+
+// MARK: - Checkpoint
+
+// The shared codec vocabulary for the combat checkpoint. A `Set` has no order of its own, so it is
+// encoded SORTED — the re-encode the oracle compares must be reproducible, and a hash order is not.
+// Dictionaries whose order is not state encode as JSON objects (order-free by construction).
+
+func ckStringSet(_ s: Set<String>) -> JSONValue {
+    .array(s.sorted().map { .string($0) })
+}
+
+func ckStringSetBack(_ v: JSONValue) -> Set<String>? {
+    guard let rows = v.array else { return nil }
+    var out = Set<String>()
+    out.reserveCapacity(rows.count)
+    for r in rows {
+        guard let s = r.string else { return nil }
+        out.insert(s)
+    }
+    return out
+}
+
+func ckInt64Dict(_ d: [String: Int64]) -> JSONValue {
+    .object(d.mapValues { .int($0) })
+}
+
+func ckInt64DictBack(_ v: JSONValue) -> [String: Int64]? {
+    guard let obj = v.object else { return nil }
+    var out: [String: Int64] = [:]
+    out.reserveCapacity(obj.count)
+    for (k, val) in obj {
+        guard let i = val.int64 else { return nil }
+        out[k] = i
+    }
+    return out
+}
+
+extension Modifier {
+    func checkpointState() -> JSONValue {
+        ["name": .string(name), "ts": .int(ts)]
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> Modifier? {
+        guard let name = v["name"].string, let ts = v["ts"].int64 else { return nil }
+        return Modifier(name: name, ts: ts)
+    }
+}
+
+extension RosterFacts {
+    /// Carried even though `refreshRoster` overwrites it at the top of every `onEvent`: the sweeps a
+    /// live snapshot runs between events read it too (`retractOther` asks `roster.admitted`), so the
+    /// pre-event value is reachable state, not scratch.
+    func checkpointState() -> JSONValue {
+        ["members": ckStringSet(members),
+         "admitted": ckStringSet(admitted),
+         "names": .object(names.mapValues { .string($0) })]
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> RosterFacts? {
+        guard let members = ckStringSetBack(v["members"]),
+              let admitted = ckStringSetBack(v["admitted"]),
+              let namesObj = v["names"].object else { return nil }
+        var f = RosterFacts()
+        f.members = members
+        f.admitted = admitted
+        for (k, val) in namesObj {
+            guard let s = val.string else { return nil }
+            f.names[k] = s
+        }
+        return f
+    }
+}
+
+extension EngineState {
+    /// The engine's complete fold state — EXCEPT the two live latches (`hydrating` / `recording`)
+    /// and the classification ring they gate. Those are session-local: `setLive()` belongs to the
+    /// NEW generation's first tick, and a restore always precedes a rescan of the log's tail.
+    /// Every real checkpoint is cut from a live engine (the landing save runs after the first
+    /// beat), so a verbatim carry would fold that tail with the ring recording and the nudge gate
+    /// open — bytes the from-zero canon folds hydrating. The restore leaves all three at their
+    /// reset defaults and the tail scan replays exactly as a full scan would.
+    ///
+    /// No field here is wall-clock-derived: every timestamp is stamped from event `ts` or from the
+    /// injected `now` a snapshot's sweeps ran with, so each restores verbatim.
+    func checkpointState() -> JSONValue {
+        var o: [String: JSONValue] = [
+            "petNames": ckStringSet(petNames),
+            "world": world.checkpointState(),
+            "charm": charm.checkpointState(),
+            "ally": ally.checkpointState(),
+            "others": others.checkpointState(),
+            "knownPlayers": ckStringSet(knownPlayers),
+            "everPet": ckStringSet(everPet),
+            "everStruck": ckStringSet(everStruck),
+            "playerKeyInjected": .bool(playerKeyInjected),
+            "seq": .int(Int64(seq)),
+            "history": .array(history.map { $0.checkpointState() }),
+            "zoneAgg": zoneAgg.checkpointState(),
+            "zoneFinalizedMs": .int(zoneFinalizedMs),
+            "zoneActiveMs": .int(zoneActiveMs),
+            "zoneStartTs": .int(zoneStartTs),
+            "zoneLastTs": .int(zoneLastTs),
+            "zoneHistory": .array(zoneHistory.map { $0.checkpointState() }),
+            "zoneSeq": .int(Int64(zoneSeq)),
+            "lastActivityTs": .int(lastActivityTs),
+            "specials": specials.checkpointState(),
+            "slowSamples": .array(slowSamples.map { s -> JSONValue in
+                // A nil sample is a qualifying pull that never slowed — data, not absence.
+                guard let s else { return .null }
+                return .int(s)
+            }),
+            "coatCombat": .array(coatCombat.map { $0.checkpointState() }),
+            "coatClassCheckedTs": .int(coatClassCheckedTs),
+            "stateTimeline": stateTimeline.checkpointState(),
+            "recentCasts": recentCasts.checkpointState(),
+            "heldClickies": ckStringSet(heldClickies),
+            "petNudge": petNudge.checkpointState(),
+            "quickBuffTs": .int(quickBuffTs),
+            "roster": roster.checkpointState(),
+        ]
+        if let playerKey { o["playerKey"] = .string(playerKey) }
+        if let zone { o["zone"] = .string(zone) }
+        if let current { o["current"] = current.checkpointState() }
+        if let stance { o["stance"] = stance.checkpointState() }
+        if let invocation { o["invocation"] = invocation.checkpointState() }
+        if let coatUtility { o["coatUtility"] = coatUtility.checkpointState() }
+        return .object(o)
+    }
+
+    /// Reset, then apply the blob as the whole truth. On failure the state is reset again, so a
+    /// half-applied blob never survives (the caller's answer to `false` is a full rescan).
+    func restoreCheckpoint(_ v: JSONValue) -> Bool {
+        reset()
+        if !apply(v) {
+            reset()
+            return false
+        }
+        return true
+    }
+
+    /// The apply half, assuming a freshly reset state; assignments may land before a later guard
+    /// fails, which is why `restoreCheckpoint` resets again on `false`.
+    private func apply(_ v: JSONValue) -> Bool {
+        guard let petNamesV = ckStringSetBack(v["petNames"]),
+              world.restoreCheckpoint(v["world"]),
+              charm.restoreCheckpoint(v["charm"]),
+              ally.restoreCheckpoint(v["ally"]),
+              others.restoreCheckpoint(v["others"]),
+              let knownPlayersV = ckStringSetBack(v["knownPlayers"]),
+              let everPetV = ckStringSetBack(v["everPet"]),
+              let everStruckV = ckStringSetBack(v["everStruck"]),
+              let injected = v["playerKeyInjected"].bool,
+              let seqV = v["seq"].int64, seqV >= 0,
+              let historyRows = v["history"].array,
+              let zoneAggV = Agg.fromCheckpoint(v["zoneAgg"]),
+              let zoneFinalizedMsV = v["zoneFinalizedMs"].int64,
+              let zoneActiveMsV = v["zoneActiveMs"].int64,
+              let zoneStartTsV = v["zoneStartTs"].int64,
+              let zoneLastTsV = v["zoneLastTs"].int64,
+              let zoneHistoryRows = v["zoneHistory"].array,
+              let zoneSeqV = v["zoneSeq"].int64, zoneSeqV >= 0,
+              let lastActivityTsV = v["lastActivityTs"].int64,
+              specials.restoreCheckpoint(v["specials"]),
+              let slowRows = v["slowSamples"].array,
+              let coatCombatRows = v["coatCombat"].array,
+              let coatClassCheckedTsV = v["coatClassCheckedTs"].int64,
+              stateTimeline.restoreCheckpoint(v["stateTimeline"]),
+              let recentCastsV = RecentCasts.fromCheckpoint(v["recentCasts"]),
+              let heldClickiesV = ckStringSetBack(v["heldClickies"]),
+              petNudge.restoreCheckpoint(v["petNudge"]),
+              let quickBuffTsV = v["quickBuffTs"].int64,
+              let rosterV = RosterFacts.fromCheckpoint(v["roster"]) else { return false }
+        petNames = petNamesV
+        knownPlayers = knownPlayersV
+        everPet = everPetV
+        everStruck = everStruckV
+        // The blob wholesale: `reset()` re-injected the prior character's key above, and the blob's
+        // word — key AND injection flag — replaces it, absent meaning nil.
+        playerKey = v["playerKey"].string
+        playerKeyInjected = injected
+        zone = v["zone"].string
+        seq = UInt64(seqV)
+        if let curV = v["current"].presentValue {
+            guard let e = Encounter.fromCheckpoint(curV) else { return false }
+            current = e
+        }
+        for r in historyRows {
+            guard let e = Encounter.fromCheckpoint(r) else { return false }
+            history.append(e)
+        }
+        zoneAgg = zoneAggV
+        zoneFinalizedMs = zoneFinalizedMsV
+        zoneActiveMs = zoneActiveMsV
+        zoneStartTs = zoneStartTsV
+        zoneLastTs = zoneLastTsV
+        for r in zoneHistoryRows {
+            guard let s = ZoneSession.fromCheckpoint(r) else { return false }
+            zoneHistory.append(s)
+        }
+        zoneSeq = UInt64(zoneSeqV)
+        lastActivityTs = lastActivityTsV
+        if let sv = v["stance"].presentValue {
+            guard let m = Modifier.fromCheckpoint(sv) else { return false }
+            stance = m
+        }
+        if let iv = v["invocation"].presentValue {
+            guard let m = Modifier.fromCheckpoint(iv) else { return false }
+            invocation = m
+        }
+        for r in slowRows {
+            if r.isNull {
+                slowSamples.append(nil)
+                continue
+            }
+            guard let ms = r.int64 else { return false }
+            slowSamples.append(ms)
+        }
+        if let cv = v["coatUtility"].presentValue {
+            guard let c = CoatSlot.fromCheckpoint(cv) else { return false }
+            coatUtility = c
+        }
+        for r in coatCombatRows {
+            guard let c = CoatSlot.fromCheckpoint(r) else { return false }
+            coatCombat.append(c)
+        }
+        coatClassCheckedTs = coatClassCheckedTsV
+        recentCasts = recentCastsV
+        heldClickies = heldClickiesV
+        quickBuffTs = quickBuffTsV
+        roster = rosterV
+        return true
+    }
+}

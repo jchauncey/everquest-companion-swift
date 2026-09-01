@@ -20,6 +20,7 @@
 // casts and procs occupies two rows, and `laneCanonKey` strips the marker at every join.
 import Foundation
 import EQLog
+import EQCompanionCore
 
 /// The cast-attribution window, fixed at 12 s by a partition sweep over the real log. Do not change
 /// it without re-running that sweep.
@@ -341,4 +342,77 @@ public func addSpellProc(_ lanes: inout JSMap<SpellProcLane>, _ f: SpellProcFold
         lane.byState.insert(stateKey, sides)
     }
     lanes.insert(key, lane)
+}
+
+// MARK: - Checkpoint
+
+extension LaneSides {
+    func checkpointState() -> JSONValue {
+        .array(n.map { .int($0) })
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> LaneSides? {
+        guard let rows = v.array, rows.count == 3 else { return nil }
+        var vals: [Int64] = []
+        for r in rows {
+            guard let i = r.int64 else { return nil }
+            vals.append(i)
+        }
+        var out = LaneSides()
+        out.n = vals
+        return out
+    }
+}
+
+extension SpellProcLane {
+    func checkpointState() -> JSONValue {
+        ["name": .string(name), "hits": hits.checkpointState(), "damage": .int(damage),
+         "heal": .int(heal), "click": .bool(click),
+         "byState": byState.checkpoint { $0.checkpointState() }]
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> SpellProcLane? {
+        guard let name = v["name"].string, let hits = LaneSides.fromCheckpoint(v["hits"]),
+              let damage = v["damage"].int64, let heal = v["heal"].int64,
+              let click = v["click"].bool,
+              let byState = JSMap<LaneSides>.fromCheckpoint(v["byState"], LaneSides.fromCheckpoint)
+        else { return nil }
+        return SpellProcLane(name: name, hits: hits, damage: damage, heal: heal, click: click,
+                             byState: byState)
+    }
+}
+
+extension RecentCasts {
+    /// The ledger mid-flight, `claimTs` and the suspended record included: a checkpoint can land
+    /// between a cast line and the firing it will explain, or between an interrupt and its
+    /// `resume()`, and losing either would read the resumed lines as procs.
+    func checkpointState() -> JSONValue {
+        var o: [String: JSONValue] = [
+            "casts": .object(casts.mapValues { rec -> JSONValue in
+                var r: [String: JSONValue] = ["ts": .int(rec.ts)]
+                if let c = rec.claimTs { r["claimTs"] = .int(c) }
+                return .object(r)
+            }),
+        ]
+        if let (key, rec) = suspended {
+            var r: [String: JSONValue] = ["key": .string(key), "ts": .int(rec.ts)]
+            if let c = rec.claimTs { r["claimTs"] = .int(c) }
+            o["suspended"] = .object(r)
+        }
+        return .object(o)
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> RecentCasts? {
+        guard let castsObj = v["casts"].object else { return nil }
+        var out = RecentCasts()
+        for (key, rv) in castsObj {
+            guard let ts = rv["ts"].int64 else { return nil }
+            out.casts[key] = CastRecord(ts: ts, claimTs: rv["claimTs"].int64)
+        }
+        if let sv = v["suspended"].presentValue {
+            guard let key = sv["key"].string, let ts = sv["ts"].int64 else { return nil }
+            out.suspended = (key, CastRecord(ts: ts, claimTs: sv["claimTs"].int64))
+        }
+        return out
+    }
 }

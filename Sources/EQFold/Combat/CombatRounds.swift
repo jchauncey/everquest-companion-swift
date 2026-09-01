@@ -20,6 +20,7 @@
 // `slash` may be two hands rather than a double attack and no line distinguishes them. Reuse-timer
 // skills have no such confound — one timer, one hand — and that split is `roundConfidence`.
 import Foundation
+import EQCompanionCore
 
 /// Rust's `i64::div_euclid`, which Swift's `/` (truncating toward zero) is not for negatives.
 func roundsDivEuclid(_ a: Int64, _ b: Int64) -> Int64 {
@@ -263,4 +264,71 @@ func stableSorted<T>(_ a: [T], _ less: (T, T) -> Bool) -> [T] {
         if less(y.element, x.element) { return false }
         return x.offset < y.offset
     }.map(\.element)
+}
+
+// MARK: - Checkpoint
+
+extension RoundLaneTally {
+    func checkpointState() -> JSONValue {
+        ["verb": .string(verb), "skill": .string(skill),
+         "buckets": .array(buckets.map { .int($0) }),
+         "rounds": .int(rounds), "multiRounds": .int(multiRounds), "fannedRounds": .int(fannedRounds)]
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> RoundLaneTally? {
+        guard let verb = v["verb"].string, let skill = v["skill"].string,
+              let bucketRows = v["buckets"].array, bucketRows.count == ROUND_BUCKETS,
+              let rounds = v["rounds"].int64, let multiRounds = v["multiRounds"].int64,
+              let fannedRounds = v["fannedRounds"].int64 else { return nil }
+        var buckets: [Int64] = []
+        for b in bucketRows {
+            guard let n = b.int64 else { return nil }
+            buckets.append(n)
+        }
+        return RoundLaneTally(verb: verb, skill: skill, buckets: buckets, rounds: rounds,
+                              multiRounds: multiRounds, fannedRounds: fannedRounds)
+    }
+}
+
+extension RoundAccum {
+    /// The still-open second travels too — a checkpoint can land between two swings of one round,
+    /// and flushing it instead would count a half-round early and split its other half off.
+    func checkpointState() -> JSONValue {
+        .object([
+            "lanes": lanes.checkpoint { $0.checkpointState() },
+            "openSecond": .int(openSecond),
+            "pending": pending.checkpoint { p in
+                .object(["verb": .string(p.verb), "skill": .string(p.skill),
+                         "seq": .array(p.seq.map { .int($0) })])
+            },
+            "excluded": .array(excluded.map { .int($0) }),
+        ])
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> RoundAccum? {
+        guard let lanes = JSMap<RoundLaneTally>.fromCheckpoint(v["lanes"], RoundLaneTally.fromCheckpoint),
+              let openSecond = v["openSecond"].int64,
+              let pending = JSMap<PendingLane>.fromCheckpoint(v["pending"], { p -> PendingLane? in
+                  guard let verb = p["verb"].string, let skill = p["skill"].string,
+                        let seqRows = p["seq"].array else { return nil }
+                  var seq: [Int64] = []
+                  for s in seqRows {
+                      guard let n = s.int64 else { return nil }
+                      seq.append(n)
+                  }
+                  return PendingLane(verb: verb, skill: skill, seq: seq)
+              }),
+              let excludedRows = v["excluded"].array, excludedRows.count == 4 else { return nil }
+        var excluded: [Int64] = []
+        for e in excludedRows {
+            guard let n = e.int64 else { return nil }
+            excluded.append(n)
+        }
+        var r = RoundAccum()
+        r.lanes = lanes
+        r.openSecond = openSecond
+        r.pending = pending
+        r.excluded = excluded
+        return r
+    }
 }

@@ -698,6 +698,102 @@ public final class BuffTimersModule: EqModule {
     public var asBuffTimers: BuffTimersModule? { self }
 }
 
+// MARK: - Checkpoint
+
+extension BuffTimersModule: FoldCheckpointable {
+    /// ONLY this module's own state. The shared `core` (anchors + learner) is deliberately absent:
+    /// both buff modules hold the one `BuffsCore`, and `BuffsModule` owns its checkpoint — its
+    /// blob embeds the core, it registers (and therefore restores) first, and this module's
+    /// `reset()` and restore never touch the core, so the state `BuffsModule` just restored is
+    /// neither clobbered nor applied twice.
+    ///
+    /// `rev` IS carried, unlike Loot's `rev`: here it is the published `seq` itself
+    /// (`snapshot()` and `publishedSeq` both serve it), so views resume against it.
+    /// `recentMints` and `culled` are memories folding still reads (a wake censor, a late join),
+    /// `lastEventTs` is what the session-gap clear compares against.
+    public func checkpointState() -> JSONValue {
+        .object([
+            "held": held.checkpoint { h in
+                var r: [String: JSONValue] = [
+                    "entityKey": .string(h.entityKey),
+                    "target": .string(h.target),
+                    "lineKey": .string(h.lineKey),
+                    "candidates": .array(h.candidates.map { .string($0) }),
+                    "caster": .string(h.caster),
+                    "mez": .bool(h.mez),
+                    "group": h.group.checkpointState(),
+                ]
+                if let s = h.spell { r["spell"] = .string(s) }
+                if let d = h.durationMs { r["durationMs"] = .int(d) }
+                if let s = h.source { r["source"] = .string(s.rawValue) }
+                return .object(r)
+            },
+            "ends": .array(endsLedger.map(\.json)),
+            "culled": culled.checkpoint { m in
+                .object(["entityKey": .string(m.entityKey), "caster": .string(m.caster),
+                         "spell": .string(m.spell), "startedTs": .int(m.startedTs),
+                         "joinableUntil": .int(m.joinableUntil)])
+            },
+            "recentMints": .array(recentMints.map {
+                .object(["entityKey": .string($0.entityKey), "lineKey": .string($0.lineKey),
+                         "caster": .string($0.caster), "ts": .int($0.ts)])
+            }),
+            "lastEventTs": .int(lastEventTs),
+            "rev": .int(rev),
+        ])
+    }
+
+    public func restoreCheckpoint(_ state: JSONValue) -> Bool {
+        reset()
+        guard let heldMap = JSMap<Held>.fromCheckpoint(state["held"], { r in
+            guard let entityKey = r["entityKey"].string, let target = r["target"].string,
+                  let lineKey = r["lineKey"].string, let candRows = r["candidates"].array,
+                  let caster = r["caster"].string, let mez = r["mez"].bool,
+                  let group = HoldGroup.fromCheckpoint(r["group"]) else { return nil }
+            let candidates = candRows.compactMap(\.string)
+            guard candidates.count == candRows.count else { return nil }
+            var source: EstimatorSource?
+            if let s = r["source"].string {
+                guard let d = EstimatorSource(rawValue: s) else { return nil }
+                source = d
+            }
+            return Held(entityKey: entityKey, target: target, lineKey: lineKey,
+                        spell: r["spell"].string, candidates: candidates, caster: caster,
+                        durationMs: r["durationMs"].int64, source: source, mez: mez, group: group)
+        }),
+        let culledMap = JSMap<LateJoin>.fromCheckpoint(state["culled"], { m in
+            guard let entityKey = m["entityKey"].string, let caster = m["caster"].string,
+                  let spell = m["spell"].string, let startedTs = m["startedTs"].int64,
+                  let until = m["joinableUntil"].int64 else { return nil }
+            return LateJoin(entityKey: entityKey, caster: caster, spell: spell,
+                            startedTs: startedTs, joinableUntil: until)
+        }),
+        let endRows = state["ends"].array, let mintRows = state["recentMints"].array,
+        let last = state["lastEventTs"].int64, let savedRev = state["rev"].int64
+        else { return false }
+        var ends: [CcEnd] = []
+        ends.reserveCapacity(endRows.count)
+        for e in endRows {
+            guard let key = e["key"].string, let ts = e["ts"].int64 else { return false }
+            ends.append(CcEnd(key: key, ts: ts, spell: e["spell"].string))
+        }
+        var mints: [RecentMint] = []
+        mints.reserveCapacity(mintRows.count)
+        for m in mintRows {
+            guard let entityKey = m["entityKey"].string, let lineKey = m["lineKey"].string,
+                  let caster = m["caster"].string, let ts = m["ts"].int64 else { return false }
+            mints.append(RecentMint(entityKey: entityKey, lineKey: lineKey, caster: caster, ts: ts))
+        }
+        held = heldMap
+        endsLedger = ends
+        culled = culledMap
+        recentMints = mints
+        lastEventTs = last
+        rev = savedRev
+        return true
+    }
+}
+
 /// The CC/charm broadcast's candidate shape, which carries no illusion flag.
 private func ccCandidates(_ ev: Event) -> [Candidate] {
     ev.candidates(.candidates).map {

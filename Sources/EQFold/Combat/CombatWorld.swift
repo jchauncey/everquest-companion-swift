@@ -26,6 +26,7 @@
 // can retire.
 import Foundation
 import EQLog
+import EQCompanionCore
 
 /// How long a live hostile instance may go completely unobserved before its slot is eligible for
 /// retirement. Deliberately the same number as the encounter layer's PRESENCE_GONE_MS: an instance
@@ -486,5 +487,109 @@ public final class WorldModel {
         let total = gens[inst.nameKey] ?? 1
         let label = (total <= 1 || inst.gen == 1) ? inst.display : "\(inst.display) (\(inst.gen))"
         return Resolved(instanceId: inst.instanceId, nameKey: inst.nameKey, label: label)
+    }
+}
+
+// MARK: - Checkpoint
+
+extension WorldModel {
+    /// Every table is carried except `byId`, which is rebuilt from `insts`: `spawn` is its only
+    /// writer and always records instanceId → array position, so it is derived by construction.
+    /// `retiredIds` is carried too — `EngineState` drains it within the same delivery, so it is
+    /// empty at any between-events checkpoint, but an empty queue carried is cheaper than a
+    /// non-empty one lost.
+    func checkpointState() -> JSONValue {
+        let instRows: [JSONValue] = insts.map { inst in
+            var o: [String: JSONValue] = [
+                "instanceId": .string(inst.instanceId),
+                "nameKey": .string(inst.nameKey),
+                "display": .string(inst.display),
+                "charmed": .bool(inst.charmed),
+                "firstSeenTs": .int(inst.firstSeenTs),
+                "lastSeenTs": .int(inst.lastSeenTs),
+                "retired": .bool(inst.retired),
+                "gen": .int(Int64(inst.gen)),
+            ]
+            switch inst.petKind {
+            case .charmed: o["petKind"] = .string("charmed")
+            case .summoned: o["petKind"] = .string("summoned")
+            case nil: break
+            }
+            return .object(o)
+        }
+        let tanked: [JSONValue] = petTankedBy.keys.sorted().map { at in
+            .array([.int(Int64(at)), ckStringSet(petTankedBy[at]!)])
+        }
+        return .object([
+            "insts": .array(instRows),
+            "activeByName": activeByName.checkpoint { list in .array(list.map { .int(Int64($0)) }) },
+            "gens": .object(gens.mapValues { .int(Int64($0)) }),
+            "petTankedBy": .array(tanked),
+            "retiredIds": .array(retiredIds.map { .string($0) }),
+        ])
+    }
+
+    func restoreCheckpoint(_ v: JSONValue) -> Bool {
+        reset()
+        guard let instRows = v["insts"].array,
+              let liveMap = JSMap<[Int]>.fromCheckpoint(v["activeByName"], { list -> [Int]? in
+                  guard let rows = list.array else { return nil }
+                  var out: [Int] = []
+                  for r in rows {
+                      guard let i = r.int else { return nil }
+                      out.append(i)
+                  }
+                  return out
+              }),
+              let gensObj = v["gens"].object,
+              let tankedRows = v["petTankedBy"].array,
+              let retiredRows = v["retiredIds"].array else { reset(); return false }
+        var newInsts: [Instance] = []
+        for r in instRows {
+            guard let instanceId = r["instanceId"].string, let nameKey = r["nameKey"].string,
+                  let display = r["display"].string, let charmed = r["charmed"].bool,
+                  let firstSeen = r["firstSeenTs"].int64, let lastSeen = r["lastSeenTs"].int64,
+                  let retired = r["retired"].bool, let gen = r["gen"].int else { reset(); return false }
+            let petKind: PetKind?
+            switch r["petKind"].string {
+            case nil: petKind = nil
+            case "charmed"?: petKind = .charmed
+            case "summoned"?: petKind = .summoned
+            default: reset(); return false
+            }
+            newInsts.append(Instance(instanceId: instanceId, nameKey: nameKey, display: display,
+                                     charmed: charmed, petKind: petKind, firstSeenTs: firstSeen,
+                                     lastSeenTs: lastSeen, retired: retired, gen: gen))
+        }
+        // Every handle must point into `insts` — a dangling one would crash a later resolve.
+        for list in liveMap.values {
+            for at in list where at < 0 || at >= newInsts.count {
+                reset()
+                return false
+            }
+        }
+        var newGens: [String: Int] = [:]
+        for (k, gv) in gensObj {
+            guard let g = gv.int else { reset(); return false }
+            newGens[k] = g
+        }
+        var newTanked: [Int: Set<String>] = [:]
+        for row in tankedRows {
+            guard let at = row[0].int, at >= 0, at < newInsts.count,
+                  let names = ckStringSetBack(row[1]) else { reset(); return false }
+            newTanked[at] = names
+        }
+        var newRetired: [String] = []
+        for r in retiredRows {
+            guard let s = r.string else { reset(); return false }
+            newRetired.append(s)
+        }
+        insts = newInsts
+        activeByName = liveMap
+        for (i, inst) in newInsts.enumerated() { byId[inst.instanceId] = i }
+        gens = newGens
+        petTankedBy = newTanked
+        retiredIds = newRetired
+        return true
     }
 }

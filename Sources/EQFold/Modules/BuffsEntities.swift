@@ -133,4 +133,39 @@ public final class PetEntities {
         petTargetDisplay = nil
         return changed
     }
+
+    // MARK: - Checkpoint
+
+    /// The eight identity slots plus the learned display casing. The casing map survives `reset()`
+    /// as game knowledge, and is still carried and replaced wholesale — the blob is the truth.
+    func checkpointState() -> JSONValue {
+        var o: [String: JSONValue] = [
+            "namedEntityDisplay": namedEntityDisplay.checkpoint { .string($0) },
+        ]
+        if let v = charmedKey { o["charmedKey"] = .string(v) }
+        if let v = charmedDisplay { o["charmedDisplay"] = .string(v) }
+        if let v = brokenCharmKey { o["brokenCharmKey"] = .string(v) }
+        if let v = brokenCharmDisplay { o["brokenCharmDisplay"] = .string(v) }
+        if let v = summonedKey { o["summonedKey"] = .string(v) }
+        if let v = summonedDisplay { o["summonedDisplay"] = .string(v) }
+        if let v = petTargetKey { o["petTargetKey"] = .string(v) }
+        if let v = petTargetDisplay { o["petTargetDisplay"] = .string(v) }
+        return .object(o)
+    }
+
+    func restoreCheckpoint(_ v: JSONValue) -> Bool {
+        reset()
+        guard let named = JSMap<String>.fromCheckpoint(v["namedEntityDisplay"], { $0.string })
+        else { return false }
+        namedEntityDisplay = named
+        charmedKey = v["charmedKey"].string
+        charmedDisplay = v["charmedDisplay"].string
+        brokenCharmKey = v["brokenCharmKey"].string
+        brokenCharmDisplay = v["brokenCharmDisplay"].string
+        summonedKey = v["summonedKey"].string
+        summonedDisplay = v["summonedDisplay"].string
+        petTargetKey = v["petTargetKey"].string
+        petTargetDisplay = v["petTargetDisplay"].string
+        return true
+    }
 }

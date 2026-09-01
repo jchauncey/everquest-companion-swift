@@ -11,15 +11,21 @@ import EQCompanionCore
 public final class Fold {
     public let registry: Registry
     public var combat: CombatEngine?
-    private let epoch: EpochDetector
-    private let sessions = SessionDetector()
+    let epochDetector: EpochDetector
+    let sessionDetector = SessionDetector()
     private var derived: [Event] = []
     public private(set) var events: UInt64 = 0
     public private(set) var lastTs: Int64 = 0
 
+    /// The checkpoint's door onto the two counters — restore only, never folding.
+    func restoreCounters(events: UInt64, lastTs: Int64) {
+        self.events = events
+        self.lastTs = lastTs
+    }
+
     public init(registry: Registry, launchMs: Int64) {
         self.registry = registry
-        epoch = EpochDetector(launchMs: launchMs)
+        epochDetector = EpochDetector(launchMs: launchMs)
         reset()
     }
 
@@ -33,8 +39,8 @@ public final class Fold {
     public func reset() {
         registry.reset()
         combat?.reset()
-        epoch.reset()
-        sessions.reset()
+        epochDetector.reset()
+        sessionDetector.reset()
         derived.removeAll()
         events = 0
         lastTs = 0
@@ -57,8 +63,8 @@ public final class Fold {
     private func observe(_ ev: Event, live: Bool) {
         registry.dispatch(ev, live: live, derived: &derived)
         combat?.onEvent(ev, live: live, roster: registry.roster())
-        if let d = epoch.observe(ev) { derived.append(d) }
-        if let d = sessions.observe(ev) { derived.append(d) }
+        if let d = epochDetector.observe(ev) { derived.append(d) }
+        if let d = sessionDetector.observe(ev) { derived.append(d) }
     }
 
     /// One wall-clock tick over the whole world — live only. The combat engine declares no tick.
@@ -78,5 +84,59 @@ public final class Fold {
         for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
             if let ev = Event.fromJSON(String(line)) { onPrimary(ev, live: false) }
         }
+    }
+}
+
+// MARK: - Checkpoint
+
+/// The version stamped into every world checkpoint. BUMP IT whenever any module's fold semantics
+/// or any codec changes shape — a stale-format blob must read as "unusable, rescan", never as a
+/// subtly different world. The build-identity check on top of this lives with the caller; this
+/// number is for deliberate format breaks within one build lineage.
+public let foldCheckpointVersion = 1
+
+extension Fold {
+    /// The whole world at this instant: the Fold's own detectors and counters, every conforming
+    /// module, and the combat engine. Nil while any registered module does not conform — a world
+    /// checkpoint with a hole in it is not a checkpoint, and half a world restored beside a virgin
+    /// half would be exactly the divergence the oracle exists to prevent.
+    public func checkpointState() -> JSONValue? {
+        var modules: [String: JSONValue] = [:]
+        for m in registry.mods {
+            guard let cp = m as? FoldCheckpointable else { return nil }
+            modules[m.id] = cp.checkpointState()
+        }
+        var o: [String: JSONValue] = [
+            "version": .int(Int64(foldCheckpointVersion)),
+            "events": .int(Int64(events)),
+            "lastTs": .int(lastTs),
+            "epochDetector": epochDetector.checkpointState(),
+            "sessionDetector": sessionDetector.checkpointState(),
+            "modules": .object(modules),
+        ]
+        if let combat { o["combat"] = combat.checkpointState() }
+        return .object(o)
+    }
+
+    /// Rebuild the whole world from a `checkpointState()` blob. The registry must be the same
+    /// wiring the blob was cut from (same module ids); anything else refuses. On ANY refusal the
+    /// world is left fully reset — the caller's answer is a full rescan, and a half-restored world
+    /// must never survive into it.
+    public func restoreCheckpoint(_ state: JSONValue) -> Bool {
+        reset()
+        guard state["version"].int64 == Int64(foldCheckpointVersion),
+              let eventCount = state["events"].int64, let ts = state["lastTs"].int64,
+              let modules = state["modules"].object else { return false }
+        guard epochDetector.restoreCheckpoint(state["epochDetector"]),
+              sessionDetector.restoreCheckpoint(state["sessionDetector"]) else { reset(); return false }
+        for m in registry.mods {
+            guard let cp = m as? FoldCheckpointable, let blob = modules[m.id],
+                  cp.restoreCheckpoint(blob) else { reset(); return false }
+        }
+        if let combat {
+            guard combat.restoreCheckpoint(state["combat"]) else { reset(); return false }
+        }
+        restoreCounters(events: UInt64(eventCount), lastTs: ts)
+        return true
     }
 }

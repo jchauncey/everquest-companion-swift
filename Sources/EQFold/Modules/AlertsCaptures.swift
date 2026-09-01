@@ -271,4 +271,31 @@ enum AlertCaptures {
         out["target"] = value
         return out
     }
+
+    // MARK: - Checkpoint
+
+    /// A firing's captures for a fold checkpoint — the words an armed warning froze at the arm,
+    /// already sanitized and capped by the producers above; the codec re-applies neither. Key order
+    /// is not a claim (see `CaptureMap`: consumers look tokens up by name), so a plain object is
+    /// the honest encoding. `null` is "this firing carries no captures" — `harvestCaptures` never
+    /// returns an empty map, so nil and empty are distinct answers and the distinction is kept.
+    static func checkpointCaptures(_ captures: CaptureMap?) -> JSONValue {
+        guard let captures else { return .null }
+        var o: [String: JSONValue] = [:]
+        for (k, v) in captures { o[k] = .string(v) }
+        return .object(o)
+    }
+
+    /// Rebuild from `checkpointCaptures(_:)`. The OUTER nil is "malformed blob" (the caller refuses
+    /// the whole checkpoint); `.some(nil)` is a firing that carried no captures.
+    static func restoreCaptures(_ v: JSONValue) -> CaptureMap?? {
+        if v.isNull { return .some(nil) }
+        guard let obj = v.object else { return .none }
+        var out = CaptureMap()
+        for (k, val) in obj {
+            guard let s = val.string else { return .none }
+            out[k] = s
+        }
+        return .some(out)
+    }
 }

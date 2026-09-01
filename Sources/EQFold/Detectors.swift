@@ -92,4 +92,36 @@ public struct Announce {
     public init() {}
     public mutating func changed(_ seq: Int64) { cursor = max(cursor, seq) + 1 }
     public mutating func reset() { cursor = 0 }
+    /// A checkpoint restore puts the cursor back exactly where it was: `publishedSeq` is part of
+    /// what a resumed fold must reproduce, since views resume against it.
+    public mutating func restore(cursor: Int64) { self.cursor = cursor }
+}
+
+// MARK: - Checkpoint
+
+extension EpochDetector {
+    /// `fired` is the whole state, and it matters completely: a resumed world that forgot it would
+    /// synthesize a second launch-epoch on its first event and wipe every module's history.
+    public func checkpointState() -> JSONValue { .object(["fired": .bool(fired)]) }
+    public func restoreCheckpoint(_ v: JSONValue) -> Bool {
+        reset()
+        guard let f = v["fired"].bool else { return false }
+        fired = f
+        return true
+    }
+}
+
+extension SessionDetector {
+    /// The evidence clock and the camp instant — without them, the first `sessionStart` after
+    /// resume cannot state the offline gap it closes, or states one with the wrong `camped`.
+    public func checkpointState() -> JSONValue {
+        .object(["evidenceTs": .int(evidenceTs), "campTs": .int(campTs)])
+    }
+    public func restoreCheckpoint(_ v: JSONValue) -> Bool {
+        reset()
+        guard let e = v["evidenceTs"].int64, let c = v["campTs"].int64 else { return false }
+        evidenceTs = e
+        campTs = c
+        return true
+    }
 }

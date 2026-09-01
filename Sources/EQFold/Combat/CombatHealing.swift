@@ -424,3 +424,113 @@ public func buildHealingView(_ acc: HealAccum, _ durationSec: Double) -> Healing
         enemyTotal: enemyHealers.map(\.total).reduce(0, +),
         mitigation: mitigationView(acc.mit))
 }
+
+// MARK: - Checkpoint
+
+private func ckHealKind(_ k: HealSourceKind) -> JSONValue { .string(k.asStr) }
+
+private func ckHealKindBack(_ v: JSONValue) -> HealSourceKind? {
+    switch v.string {
+    case "you"?: return .you
+    case "pet"?: return .pet
+    case "other"?: return .other
+    case "enemy"?: return .enemy
+    default: return nil
+    }
+}
+
+private func ckHealSpell(_ s: HealSpellStat) -> JSONValue {
+    var o: [String: JSONValue] = [
+        "name": .string(s.name), "total": .int(s.total), "count": .int(s.count),
+        "crits": .int(s.crits), "max": .int(s.max), "overheal": .int(s.overheal),
+        "fullOverheal": .int(s.fullOverheal),
+    ]
+    // `min` absent, never zero — the lane's own rule.
+    if let m = s.min { o["min"] = .int(m) }
+    return .object(o)
+}
+
+private func ckHealSpellBack(_ v: JSONValue) -> HealSpellStat? {
+    guard let name = v["name"].string, let total = v["total"].int64, let count = v["count"].int64,
+          let crits = v["crits"].int64, let mx = v["max"].int64, let overheal = v["overheal"].int64,
+          let fullOverheal = v["fullOverheal"].int64 else { return nil }
+    var s = HealSpellStat(name: name)
+    s.total = total
+    s.count = count
+    s.crits = crits
+    s.max = mx
+    s.min = v["min"].int64
+    s.overheal = overheal
+    s.fullOverheal = fullOverheal
+    return s
+}
+
+private func ckHealSource(_ s: HealSourceStat) -> JSONValue {
+    var o: [String: JSONValue] = [
+        "name": .string(s.name), "kind": ckHealKind(s.kind), "total": .int(s.total),
+        "count": .int(s.count), "crits": .int(s.crits), "max": .int(s.max),
+        "overheal": .int(s.overheal), "fullOverheal": .int(s.fullOverheal),
+        "bySpell": s.bySpell.checkpoint(ckHealSpell),
+    ]
+    if let m = s.min { o["min"] = .int(m) }
+    return .object(o)
+}
+
+private func ckHealSourceBack(_ v: JSONValue) -> HealSourceStat? {
+    guard let name = v["name"].string, let kind = ckHealKindBack(v["kind"]),
+          let total = v["total"].int64, let count = v["count"].int64, let crits = v["crits"].int64,
+          let mx = v["max"].int64, let overheal = v["overheal"].int64,
+          let fullOverheal = v["fullOverheal"].int64,
+          let bySpell = JSMap<HealSpellStat>.fromCheckpoint(v["bySpell"], ckHealSpellBack)
+    else { return nil }
+    var s = HealSourceStat(name: name, kind: kind)
+    s.total = total
+    s.count = count
+    s.crits = crits
+    s.max = mx
+    s.min = v["min"].int64
+    s.overheal = overheal
+    s.fullOverheal = fullOverheal
+    s.bySpell = bySpell
+    return s
+}
+
+extension HealAccum {
+    func checkpointState() -> JSONValue {
+        var mit: [String: JSONValue] = [
+            "runeTotal": .int(self.mit.runeTotal), "runeCount": .int(self.mit.runeCount),
+            "runeMax": .int(self.mit.runeMax), "absorbedSwings": .int(self.mit.absorbedSwings),
+            "absorbedDamageShields": .int(self.mit.absorbedDamageShields),
+        ]
+        if let m = self.mit.runeMin { mit["runeMin"] = .int(m) }
+        return .object([
+            "friendly": friendly.checkpoint(ckHealSource),
+            "hostile": hostile.checkpoint(ckHealSource),
+            "mit": .object(mit),
+            "unstated": unstated.checkpoint { .int($0) },
+        ])
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> HealAccum? {
+        guard let friendly = JSMap<HealSourceStat>.fromCheckpoint(v["friendly"], ckHealSourceBack),
+              let hostile = JSMap<HealSourceStat>.fromCheckpoint(v["hostile"], ckHealSourceBack),
+              let runeTotal = v["mit"]["runeTotal"].int64,
+              let runeCount = v["mit"]["runeCount"].int64,
+              let runeMax = v["mit"]["runeMax"].int64,
+              let absorbedSwings = v["mit"]["absorbedSwings"].int64,
+              let absorbedDamageShields = v["mit"]["absorbedDamageShields"].int64,
+              let unstated = JSMap<Int64>.fromCheckpoint(v["unstated"], { $0.int64 })
+        else { return nil }
+        var acc = HealAccum()
+        acc.friendly = friendly
+        acc.hostile = hostile
+        acc.mit.runeTotal = runeTotal
+        acc.mit.runeCount = runeCount
+        acc.mit.runeMax = runeMax
+        acc.mit.runeMin = v["mit"]["runeMin"].int64
+        acc.mit.absorbedSwings = absorbedSwings
+        acc.mit.absorbedDamageShields = absorbedDamageShields
+        acc.unstated = unstated
+        return acc
+    }
+}

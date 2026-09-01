@@ -227,3 +227,167 @@ public func encounterName(_ e: Encounter, _ live: Bool) -> String {
     }
     return "\(ranked[0].element.name)\(suffix)"
 }
+
+// MARK: - Checkpoint
+
+extension CoatSlot {
+    func checkpointState() -> JSONValue {
+        ["poison": .string(poison), "sinceTs": .int(sinceTs)]
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> CoatSlot? {
+        guard let poison = v["poison"].string, let ts = v["sinceTs"].int64 else { return nil }
+        return CoatSlot(poison: poison, sinceTs: ts)
+    }
+}
+
+extension TimelineRaw {
+    func checkpointState() -> JSONValue {
+        var o: [String: JSONValue] = [
+            "ts": .int(ts), "lane": .string(lane), "category": .string(category),
+            "amount": .int(amount), "crit": .bool(crit),
+            "modifiers": .array(modifiers.map { .string($0) }), "kind": .string(kind),
+        ]
+        if let outcome { o["outcome"] = .string(outcome) }
+        if let detail { o["detail"] = .string(detail) }
+        if let target { o["target"] = .string(target) }
+        return .object(o)
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> TimelineRaw? {
+        guard let ts = v["ts"].int64, let lane = v["lane"].string,
+              let category = v["category"].string, let amount = v["amount"].int64,
+              let crit = v["crit"].bool, let modRows = v["modifiers"].array,
+              let kind = v["kind"].string else { return nil }
+        var mods: [String] = []
+        for m in modRows {
+            guard let s = m.string else { return nil }
+            mods.append(s)
+        }
+        return TimelineRaw(ts: ts, lane: lane, category: category, amount: amount, crit: crit,
+                           modifiers: mods, kind: kind, outcome: v["outcome"].string,
+                           detail: v["detail"].string, target: v["target"].string)
+    }
+}
+
+extension MarkerRaw {
+    func checkpointState() -> JSONValue {
+        var o: [String: JSONValue] = ["ts": .int(ts), "kind": .string(kind), "label": .string(label)]
+        if let detail { o["detail"] = .string(detail) }
+        return .object(o)
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> MarkerRaw? {
+        guard let ts = v["ts"].int64, let kind = v["kind"].string,
+              let label = v["label"].string else { return nil }
+        return MarkerRaw(ts: ts, kind: kind, label: label, detail: v["detail"].string)
+    }
+}
+
+extension StanceRaw {
+    func checkpointState() -> JSONValue {
+        var o: [String: JSONValue] = ["group": .string(group), "name": .string(name), "start": .int(start)]
+        if let end { o["end"] = .int(end) }
+        return .object(o)
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> StanceRaw? {
+        guard let group = v["group"].string, let name = v["name"].string,
+              let start = v["start"].int64 else { return nil }
+        return StanceRaw(group: group, name: name, start: start, end: v["end"].int64)
+    }
+}
+
+extension ZoneSession {
+    func checkpointState() -> JSONValue {
+        ["id": .string(id), "zone": .string(zone), "agg": agg.checkpointState(),
+         "closedBy": .string(closedBy.rawValue), "startTs": .int(startTs), "lastTs": .int(lastTs),
+         "finalizedMs": .int(finalizedMs), "activeMs": .int(activeMs)]
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> ZoneSession? {
+        guard let id = v["id"].string, let zone = v["zone"].string,
+              let agg = Agg.fromCheckpoint(v["agg"]),
+              let closedBy = ZoneSessionClose(rawValue: v["closedBy"].string ?? ""),
+              let startTs = v["startTs"].int64, let lastTs = v["lastTs"].int64,
+              let finalizedMs = v["finalizedMs"].int64,
+              let activeMs = v["activeMs"].int64 else { return nil }
+        return ZoneSession(id: id, zone: zone, agg: agg, closedBy: closedBy, startTs: startTs,
+                           lastTs: lastTs, finalizedMs: finalizedMs, activeMs: activeMs)
+    }
+}
+
+extension Encounter {
+    /// The memoized `summary` travels as a PRESENCE FLAG rather than a blob: `encSummary(e, "fight",
+    /// 0)` is a pure function of the frozen encounter — finalize computes exactly that call — so a
+    /// restore re-derives it, and a nil (an open fight, or a summary `retractOther` dropped so it
+    /// re-derives) restores as nil.
+    func checkpointState() -> JSONValue {
+        var o: [String: JSONValue] = [
+            "id": .string(id),
+            "startTs": .int(startTs),
+            "lastTs": .int(lastTs),
+            "agg": agg.checkpointState(),
+            "engaged": ckStringSet(engaged),
+            "engagedSeen": engagedSeen.checkpoint { .int($0) },
+            "activeMs": .int(activeMs),
+            "ccActiveUntil": ccActiveUntil.checkpoint { .int($0) },
+            "hasSummary": .bool(summary != nil),
+            "events": .array(events.map { $0.checkpointState() }),
+            "eventsTotal": .int(eventsTotal),
+            "stanceSpans": .array(stanceSpans.map { $0.checkpointState() }),
+            "markers": .array(markers.map { $0.checkpointState() }),
+            "combatAtEngage": .array(combatAtEngage.map { $0.checkpointState() }),
+        ]
+        if let zone { o["zone"] = .string(zone) }
+        if let prevDamageTs { o["prevDamageTs"] = .int(prevDamageTs) }
+        if let lastOutTarget { o["lastOutTarget"] = .string(lastOutTarget) }
+        if let coatAtEngage { o["coatAtEngage"] = coatAtEngage.checkpointState() }
+        return .object(o)
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> Encounter? {
+        guard let id = v["id"].string, let startTs = v["startTs"].int64,
+              let lastTs = v["lastTs"].int64, let agg = Agg.fromCheckpoint(v["agg"]),
+              let engaged = ckStringSetBack(v["engaged"]),
+              let engagedSeen = JSMap<Int64>.fromCheckpoint(v["engagedSeen"], { $0.int64 }),
+              let activeMs = v["activeMs"].int64,
+              let ccActiveUntil = JSMap<Int64>.fromCheckpoint(v["ccActiveUntil"], { $0.int64 }),
+              let hasSummary = v["hasSummary"].bool,
+              let eventRows = v["events"].array, let eventsTotal = v["eventsTotal"].int64,
+              let spanRows = v["stanceSpans"].array, let markerRows = v["markers"].array,
+              let combatRows = v["combatAtEngage"].array else { return nil }
+        let e = Encounter(id: id, zone: v["zone"].string, ts: startTs)
+        e.lastTs = lastTs
+        e.agg = agg
+        e.engaged = engaged
+        e.engagedSeen = engagedSeen
+        e.activeMs = activeMs
+        e.prevDamageTs = v["prevDamageTs"].int64
+        e.ccActiveUntil = ccActiveUntil
+        e.lastOutTarget = v["lastOutTarget"].string
+        for r in eventRows {
+            guard let rec = TimelineRaw.fromCheckpoint(r) else { return nil }
+            e.events.append(rec)
+        }
+        e.eventsTotal = eventsTotal
+        for r in spanRows {
+            guard let s = StanceRaw.fromCheckpoint(r) else { return nil }
+            e.stanceSpans.append(s)
+        }
+        for r in markerRows {
+            guard let m = MarkerRaw.fromCheckpoint(r) else { return nil }
+            e.markers.append(m)
+        }
+        if let coat = v["coatAtEngage"].presentValue {
+            guard let c = CoatSlot.fromCheckpoint(coat) else { return nil }
+            e.coatAtEngage = c
+        }
+        for r in combatRows {
+            guard let c = CoatSlot.fromCheckpoint(r) else { return nil }
+            e.combatAtEngage.append(c)
+        }
+        if hasSummary { e.summary = encSummary(e, "fight", 0) }
+        return e
+    }
+}

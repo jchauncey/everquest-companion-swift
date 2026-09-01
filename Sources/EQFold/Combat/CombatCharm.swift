@@ -12,6 +12,7 @@
 // Pure and clock-injected: no wall clock, no engine state, no I/O.
 import Foundation
 import EQLog
+import EQCompanionCore
 
 /// What a `<mob> has been charmed.` broadcast means for US.
 public enum CharmVerdict: Sendable {
@@ -193,5 +194,65 @@ public final class CharmModel {
         let before = provisional.count
         provisional = provisional.filter { $0.0 != nameKey }
         return before != provisional.count
+    }
+}
+
+// MARK: - Checkpoint
+
+extension CharmModel {
+    /// Everything, mid-arm included: a checkpoint can land between a `You begin casting` and its
+    /// broadcast, and losing the arm would read the resumed broadcast as a stranger's charm. The
+    /// windows are all log-clock (`ts` / `until` derive from event ts), so they restore verbatim.
+    func checkpointState() -> JSONValue {
+        var o: [String: JSONValue] = [
+            "provisional": .array(provisional.map { (key, p) -> JSONValue in
+                .object(["nameKey": .string(key), "until": .int(p.until), "display": .string(p.display)])
+            }),
+            "confirmed": ckStringSet(confirmed),
+            "observed": ckInt64Dict(observed),
+            "seenCharmed": ckStringSet(seenCharmed),
+        ]
+        if let a = arm {
+            let kind: String
+            switch a.kind {
+            case .charm: kind = "charm"
+            case .cc: kind = "cc"
+            case .petBuff: kind = "petBuff"
+            }
+            o["arm"] = .object(["kind": .string(kind), "spellKey": .string(a.spellKey),
+                                "ts": .int(a.ts), "until": .int(a.until)])
+        }
+        return .object(o)
+    }
+
+    func restoreCheckpoint(_ v: JSONValue) -> Bool {
+        reset()
+        guard let provRows = v["provisional"].array,
+              let confirmedV = ckStringSetBack(v["confirmed"]),
+              let observedV = ckInt64DictBack(v["observed"]),
+              let seenV = ckStringSetBack(v["seenCharmed"]) else { reset(); return false }
+        if let armV = v["arm"].presentValue {
+            guard let kindStr = armV["kind"].string, let spellKey = armV["spellKey"].string,
+                  let ts = armV["ts"].int64, let until = armV["until"].int64 else { reset(); return false }
+            let kind: ArmKind
+            switch kindStr {
+            case "charm": kind = .charm
+            case "cc": kind = .cc
+            case "petBuff": kind = .petBuff
+            default: reset(); return false
+            }
+            arm = Arm(kind: kind, spellKey: spellKey, ts: ts, until: until)
+        }
+        var prov: [(String, Provisional)] = []
+        for r in provRows {
+            guard let key = r["nameKey"].string, let until = r["until"].int64,
+                  let display = r["display"].string else { reset(); return false }
+            prov.append((key, Provisional(until: until, display: display)))
+        }
+        provisional = prov
+        confirmed = confirmedV
+        observed = observedV
+        seenCharmed = seenV
+        return true
     }
 }

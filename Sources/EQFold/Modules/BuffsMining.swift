@@ -74,4 +74,13 @@ public final class OverlayMining {
 
     /// The served overlay.
     public func build() -> JSONValue { miner.build() }
+
+    // MARK: - Checkpoint
+
+    /// The miner in full — see `MessageOverlayMiner.checkpointState`.
+    func checkpointState() -> JSONValue { miner.checkpointState() }
+
+    /// Replaces the miner's state wholesale, the construction-time seeds included: the blob's
+    /// buckets already carry whatever the seeds had contributed by the checkpoint instant.
+    func restoreCheckpoint(_ v: JSONValue) -> Bool { miner.restoreCheckpoint(v) }
 }

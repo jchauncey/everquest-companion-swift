@@ -563,3 +563,285 @@ func lane(_ map: inout JSMap<SkillStat>, _ name: String) -> SkillStat {
     map.insert(name, s)
     return s
 }
+
+// MARK: - Checkpoint
+
+extension SkillStat {
+    func checkpointState() -> JSONValue {
+        ["name": .string(name), "total": .int(total), "hits": .int(hits), "crits": .int(crits),
+         "max": .int(max), "min": .int(min), "misses": .int(misses), "resists": .int(resists)]
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> SkillStat? {
+        guard let name = v["name"].string, let total = v["total"].int64, let hits = v["hits"].int64,
+              let crits = v["crits"].int64, let mx = v["max"].int64, let mn = v["min"].int64,
+              let misses = v["misses"].int64, let resists = v["resists"].int64 else { return nil }
+        let s = SkillStat(name: name)
+        s.total = total
+        s.hits = hits
+        s.crits = crits
+        s.max = mx
+        s.min = mn
+        s.misses = misses
+        s.resists = resists
+        return s
+    }
+}
+
+extension CategoryStat {
+    func checkpointState() -> JSONValue {
+        ["category": .string(category), "total": .int(total), "hits": .int(hits),
+         "crits": .int(crits), "max": .int(max), "resists": .int(resists),
+         "bySkill": bySkill.checkpoint { $0.checkpointState() }]
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> CategoryStat? {
+        guard let category = v["category"].string, let total = v["total"].int64,
+              let hits = v["hits"].int64, let crits = v["crits"].int64, let mx = v["max"].int64,
+              let resists = v["resists"].int64,
+              let bySkill = JSMap<SkillStat>.fromCheckpoint(v["bySkill"], SkillStat.fromCheckpoint)
+        else { return nil }
+        let c = CategoryStat(category: category)
+        c.total = total
+        c.hits = hits
+        c.crits = crits
+        c.max = mx
+        c.resists = resists
+        c.bySkill = bySkill
+        return c
+    }
+}
+
+extension ModifierTally {
+    func checkpointState() -> JSONValue {
+        ["name": .string(name), "count": .int(count), "avoided": .int(avoided), "total": .int(total)]
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> ModifierTally? {
+        guard let name = v["name"].string, let count = v["count"].int64,
+              let avoided = v["avoided"].int64, let total = v["total"].int64 else { return nil }
+        let t = ModifierTally(name: name)
+        t.count = count
+        t.avoided = avoided
+        t.total = total
+        return t
+    }
+}
+
+extension RoundsAccum {
+    /// The buckets are dictionaries whose order was never published, so they encode SORTED —
+    /// skill keys as strings, seconds as `[sec, hits]` pairs — for a reproducible re-encode.
+    func checkpointState() -> JSONValue {
+        .array(bucket.keys.sorted().map { skill -> JSONValue in
+            let secs = bucket[skill]!
+            let rows = secs.keys.sorted().map { sec -> JSONValue in
+                .array([.int(sec), .int(secs[sec]!)])
+            }
+            return .array([.string(skill), .array(rows)])
+        })
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> RoundsAccum? {
+        guard let rows = v.array else { return nil }
+        let r = RoundsAccum()
+        for row in rows {
+            guard let skill = row[0].string, let secRows = row[1].array else { return nil }
+            var secs: [Int64: Int64] = [:]
+            for s in secRows {
+                guard let sec = s[0].int64, let hits = s[1].int64 else { return nil }
+                secs[sec] = hits
+            }
+            r.bucket[skill] = secs
+        }
+        return r
+    }
+}
+
+extension SourceStat {
+    func checkpointState() -> JSONValue {
+        ["name": .string(name), "kind": .string(kind.rawValue), "total": .int(total),
+         "hits": .int(hits), "crits": .int(crits), "ambiguousHits": .int(ambiguousHits),
+         "ambiguousTotal": .int(ambiguousTotal), "misses": .int(misses),
+         "miss": .array(miss.map { .int($0) }), "resists": .int(resists),
+         "bySkill": bySkill.checkpoint { $0.checkpointState() },
+         "byCategory": byCategory.checkpoint { $0.checkpointState() },
+         "rounds": rounds.checkpointState(),
+         "mods": mods.checkpoint { $0.checkpointState() },
+         "roundAcc": roundAcc.checkpointState()]
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> SourceStat? {
+        guard let name = v["name"].string, let kind = SourceKind(rawValue: v["kind"].string ?? ""),
+              let total = v["total"].int64, let hits = v["hits"].int64, let crits = v["crits"].int64,
+              let ambiguousHits = v["ambiguousHits"].int64,
+              let ambiguousTotal = v["ambiguousTotal"].int64, let misses = v["misses"].int64,
+              let missRows = v["miss"].array, missRows.count == MISS_KEYS.count,
+              let resists = v["resists"].int64,
+              let bySkill = JSMap<SkillStat>.fromCheckpoint(v["bySkill"], SkillStat.fromCheckpoint),
+              let byCategory = JSMap<CategoryStat>.fromCheckpoint(v["byCategory"], CategoryStat.fromCheckpoint),
+              let rounds = RoundsAccum.fromCheckpoint(v["rounds"]),
+              let mods = JSMap<ModifierTally>.fromCheckpoint(v["mods"], ModifierTally.fromCheckpoint),
+              let roundAcc = RoundAccum.fromCheckpoint(v["roundAcc"]) else { return nil }
+        var missV: [Int64] = []
+        for m in missRows {
+            guard let n = m.int64 else { return nil }
+            missV.append(n)
+        }
+        let s = SourceStat(name: name, kind: kind)
+        s.total = total
+        s.hits = hits
+        s.crits = crits
+        s.ambiguousHits = ambiguousHits
+        s.ambiguousTotal = ambiguousTotal
+        s.misses = misses
+        s.miss = missV
+        s.resists = resists
+        s.bySkill = bySkill
+        s.byCategory = byCategory
+        s.rounds = rounds
+        s.mods = mods
+        s.roundAcc = roundAcc
+        return s
+    }
+}
+
+extension NamedTotal {
+    func checkpointState() -> JSONValue {
+        ["name": .string(name), "amount": .int(amount), "count": .int(count)]
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> NamedTotal? {
+        guard let name = v["name"].string, let amount = v["amount"].int64,
+              let count = v["count"].int64 else { return nil }
+        return NamedTotal(name: name, amount: amount, count: count)
+    }
+}
+
+extension StrikeLane {
+    func checkpointState() -> JSONValue {
+        ["name": .string(name), "count": .int(count), "ambiguous": .bool(ambiguous)]
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> StrikeLane? {
+        guard let name = v["name"].string, let count = v["count"].int64,
+              let ambiguous = v["ambiguous"].bool else { return nil }
+        return StrikeLane(name: name, count: count, ambiguous: ambiguous)
+    }
+}
+
+extension PoisonLane {
+    func checkpointState() -> JSONValue {
+        ["name": .string(name), "count": .int(count), "total": .int(total)]
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> PoisonLane? {
+        guard let name = v["name"].string, let count = v["count"].int64,
+              let total = v["total"].int64 else { return nil }
+        return PoisonLane(name: name, count: count, total: total)
+    }
+}
+
+extension DispelLane {
+    func checkpointState() -> JSONValue {
+        ["name": .string(name), "count": .int(count)]
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> DispelLane? {
+        guard let name = v["name"].string, let count = v["count"].int64 else { return nil }
+        return DispelLane(name: name, count: count)
+    }
+}
+
+extension CoatMark {
+    func checkpointState() -> JSONValue {
+        ["poison": .string(poison), "ts": .int(ts)]
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> CoatMark? {
+        guard let poison = v["poison"].string, let ts = v["ts"].int64 else { return nil }
+        return CoatMark(poison: poison, ts: ts)
+    }
+}
+
+extension ProcAccum {
+    func checkpointState() -> JSONValue {
+        ["strikes": strikes.checkpoint { $0.checkpointState() },
+         "slowLands": .int(slowLands),
+         "firstSlowTs": .int(firstSlowTs),
+         "poisonDamage": poisonDamage.checkpoint { $0.checkpointState() },
+         "dispels": dispels.checkpoint { $0.checkpointState() },
+         "coats": .array(coats.map { $0.checkpointState() }),
+         "stanceSwitches": .int(stanceSwitches),
+         "invocationSwitches": .int(invocationSwitches),
+         "swings": .int(swings),
+         "swingsByState": swingsByState.checkpoint { .int($0) },
+         "activeMsByState": activeMsByState.checkpoint { .int($0) },
+         "spellProcs": spellProcs.checkpoint { $0.checkpointState() }]
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> ProcAccum? {
+        guard let strikes = JSMap<StrikeLane>.fromCheckpoint(v["strikes"], StrikeLane.fromCheckpoint),
+              let slowLands = v["slowLands"].int64, let firstSlowTs = v["firstSlowTs"].int64,
+              let poisonDamage = JSMap<PoisonLane>.fromCheckpoint(v["poisonDamage"], PoisonLane.fromCheckpoint),
+              let dispels = JSMap<DispelLane>.fromCheckpoint(v["dispels"], DispelLane.fromCheckpoint),
+              let coatRows = v["coats"].array,
+              let stanceSwitches = v["stanceSwitches"].int64,
+              let invocationSwitches = v["invocationSwitches"].int64,
+              let swings = v["swings"].int64,
+              let swingsByState = JSMap<Int64>.fromCheckpoint(v["swingsByState"], { $0.int64 }),
+              let activeMsByState = JSMap<Int64>.fromCheckpoint(v["activeMsByState"], { $0.int64 }),
+              let spellProcs = JSMap<SpellProcLane>.fromCheckpoint(v["spellProcs"], SpellProcLane.fromCheckpoint)
+        else { return nil }
+        let p = ProcAccum()
+        p.strikes = strikes
+        p.slowLands = slowLands
+        p.firstSlowTs = firstSlowTs
+        p.poisonDamage = poisonDamage
+        p.dispels = dispels
+        for r in coatRows {
+            guard let c = CoatMark.fromCheckpoint(r) else { return nil }
+            p.coats.append(c)
+        }
+        p.stanceSwitches = stanceSwitches
+        p.invocationSwitches = invocationSwitches
+        p.swings = swings
+        p.swingsByState = swingsByState
+        p.activeMsByState = activeMsByState
+        p.spellProcs = spellProcs
+        return p
+    }
+}
+
+extension Agg {
+    func checkpointState() -> JSONValue {
+        ["out": out.checkpoint { $0.checkpointState() },
+         "inc": inc.checkpoint { $0.checkpointState() },
+         "targets": targets.checkpoint { $0.checkpointState() },
+         "enemyHeal": enemyHeal.checkpoint { $0.checkpointState() },
+         "incHeal": incHeal.checkpoint { $0.checkpointState() },
+         "heal": heal.checkpointState(),
+         "procs": procs.checkpointState(),
+         "windows": windows.checkpointState()]
+    }
+
+    static func fromCheckpoint(_ v: JSONValue) -> Agg? {
+        guard let out = JSMap<SourceStat>.fromCheckpoint(v["out"], SourceStat.fromCheckpoint),
+              let inc = JSMap<SourceStat>.fromCheckpoint(v["inc"], SourceStat.fromCheckpoint),
+              let targets = JSMap<NamedTotal>.fromCheckpoint(v["targets"], NamedTotal.fromCheckpoint),
+              let enemyHeal = JSMap<NamedTotal>.fromCheckpoint(v["enemyHeal"], NamedTotal.fromCheckpoint),
+              let incHeal = JSMap<NamedTotal>.fromCheckpoint(v["incHeal"], NamedTotal.fromCheckpoint),
+              let heal = HealAccum.fromCheckpoint(v["heal"]),
+              let procs = ProcAccum.fromCheckpoint(v["procs"]),
+              let windows = WindowAccum.fromCheckpoint(v["windows"]) else { return nil }
+        let a = Agg()
+        a.out = out
+        a.inc = inc
+        a.targets = targets
+        a.enemyHeal = enemyHeal
+        a.incHeal = incHeal
+        a.heal = heal
+        a.procs = procs
+        a.windows = windows
+        return a
+    }
+}

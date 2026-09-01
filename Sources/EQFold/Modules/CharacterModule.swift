@@ -111,3 +111,35 @@ public final class CharacterModule: EqModule {
         return ["seq": .int(rev), "state": .object(state)]
     }
 }
+
+// MARK: - Checkpoint
+
+extension CharacterModule: FoldCheckpointable {
+    /// `rev` IS carried, unlike the other modules\' revision counters: here it is the published
+    /// `seq` itself, and a resumed world must publish the number the unbroken one would have.
+    /// `pending` is not: `reset()` spends it on the first reset of a generation, and a checkpoint
+    /// is only ever taken after folding began, which is after that reset.
+    public func checkpointState() -> JSONValue {
+        var o: [String: JSONValue] = [
+            "character": character ?? .null,
+            "rev": .int(rev),
+        ]
+        if let zone { o["zone"] = .string(zone) }
+        if let l = level { o["level"] = l.json }
+        return .object(o)
+    }
+
+    public func restoreCheckpoint(_ state: JSONValue) -> Bool {
+        reset()
+        guard let savedRev = state["rev"].int64 else { return false }
+        character = state["character"].presentValue
+        zone = state["zone"].string
+        if case .object = state["level"] {
+            guard let lv = state["level"]["level"].int64, let ts = state["level"]["ts"].int64,
+                  let src = state["level"]["source"].string else { return false }
+            level = LevelStatement(level: lv, ts: ts, source: src)
+        }
+        rev = savedRev
+        return true
+    }
+}

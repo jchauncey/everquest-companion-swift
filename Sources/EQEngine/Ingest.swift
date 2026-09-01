@@ -781,6 +781,29 @@ public enum Ingest {
         let sink = sinks(SinkInputs(log: log, character: character, db: db, clock: parser.clock,
                                     attachedAtMs: wallClockMs(), stateDir: stateDir))
 
+        let fd = open(log.path, O_RDONLY)
+        if fd < 0 { throw TailIOError(errno) }
+        defer { close(fd) }
+        var st = stat()
+        if fstat(fd, &st) != 0 { throw TailIOError(errno) }
+        let size = UInt64(st.st_size)
+
+        // The checkpoint, BEFORE the defines: a restore resets the world, so defines applied first
+        // would be wiped. Restored-then-defined is also the honest order — the checkpoint carries
+        // the defines as they stood when it was cut, and the app's re-push lands on top exactly
+        // like any define push a running engine takes mid-scan.
+        var resumed: FoldCheckpointStore.Resume?
+        if let dir = stateDir, let foldSink = sink as? FoldSink {
+            switch FoldCheckpointStore.tryResume(dir: dir, log: log, fd: fd, size: size, sink: foldSink) {
+            case .success(let r):
+                resumed = r
+                diagnostic("checkpoint: resumed \(r.events) events at mark \(r.mark) of \(size); "
+                           + "parsing only the tail")
+            case .failure(let why):
+                diagnostic("checkpoint: full scan (\(why))")
+            }
+        }
+
         // App knowledge, applied before the first byte. A `*.define` pushed before this attach — an
         // ordinary launch, since the app pushes all five on connect and attaches afterwards — is
         // held by the world and applied here, at construction. Alert defs, buff trust, respawn
@@ -789,13 +812,6 @@ public enum Ingest {
         for (family, payload) in world.heldDefines() {
             _ = sink.define(family, payload)
         }
-
-        let fd = open(log.path, O_RDONLY)
-        if fd < 0 { throw TailIOError(errno) }
-        defer { close(fd) }
-        var st = stat()
-        if fstat(fd, &st) != 0 { throw TailIOError(errno) }
-        let size = UInt64(st.st_size)
 
         if !world.reportStatus(generation, .folding) { return .preempted }
 
@@ -826,9 +842,14 @@ public enum Ingest {
         // over any chunking at all. The chunked one buys three things the whole-file one cannot: a
         // 200 MB log is never a 200 MB allocation, the read cursor is a live measurement to report
         // progress from, and every read boundary is a place to ask who owns the world.
-        var core = TailCore.at(0)
+        // At the resumed mark when there is one — the fd is seeked to the exact byte the
+        // checkpointed fold stopped at, and `seq` continues where it stopped, because views key
+        // rows by their position in the append-only event array.
+        let startMark = resumed?.mark ?? 0
+        if startMark > 0, lseek(fd, off_t(startMark), SEEK_SET) < 0 { throw TailIOError(errno) }
+        var core = TailCore.at(startMark)
         let ev = Ev()
-        var seq: Int64 = 0
+        var seq: Int64 = resumed?.seq ?? 0
         var buf = [UInt8](repeating: 0, count: scanReadBytes)
         let cadence = Cadence(every: progressEvery)
         let scanning = Instant.now()
@@ -893,6 +914,22 @@ public enum Ingest {
         if !world.reportFoldLanded(generation, landed, SinkRows(sink), landedAt, serving.meter) {
             detach(); return .preempted
         }
+
+        // The checkpoint saver. At the landing and then every `checkpointEvery` of live tailing;
+        // never on preemption, because a preempted fold's one duty is to get out of the winner's
+        // way within milliseconds and an encode is not that. The 5-minute cadence bounds what a
+        // crash or a quit can cost to that much catch-up parsing.
+        var lastCheckpointSeq: Int64 = resumed?.seq ?? -1
+        var lastCheckpointAt = Instant.now()
+        func saveCheckpoint(mark: UInt64) {
+            guard let dir = stateDir, let foldSink = sink as? FoldSink,
+                  seq != lastCheckpointSeq, let worldBlob = foldSink.checkpointWorld() else { return }
+            FoldCheckpointStore.save(dir: dir, log: log, fd: fd, mark: mark, seq: seq,
+                                     world: worldBlob, events: UInt64(max(0, foldSink.report().events)))
+            lastCheckpointSeq = seq
+            lastCheckpointAt = Instant.now()
+        }
+        saveCheckpoint(mark: landed.checkpoint)
         // Read back through the one door: this diagnostic states the world's copy of the coordinate
         // rather than the ingest's local one, so a mark the world failed to record cannot print as
         // if it had.
@@ -935,6 +972,9 @@ public enum Ingest {
             // whatever the poll folded is aged by the same beat, and both are visible to this
             // turn's progress frame, snapshot answers and view pass rather than to the next turn's.
             ticking.due(sink)
+            if Double(elapsedMs(since: lastCheckpointAt)) / 1000 > checkpointEvery {
+                saveCheckpoint(mark: tail.checkpointOffset)
+            }
             if let pollError {
                 // A failed poll leaves the tail running — `FileTail` drops its handle and the next
                 // cycle opens a fresh one. Ending the ingest here would turn a transient sharing
