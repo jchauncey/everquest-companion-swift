@@ -267,17 +267,17 @@ struct MapsView: View {
         .help(help)
     }
 
+    /// "All levels" is a real option rather than an absence, so the picker holds one vocabulary and
+    /// the binding maps its empty value back to `nil`.
     private var floorMenu: some View {
-        Menu {
-            Button("All levels") { floor = nil }
-            ForEach(Array(bands.enumerated()), id: \.offset) { i, b in
-                Button("Level \(i + 1) of \(bands.count)  ·  \(b.label)") { floor = i }
-            }
-        } label: {
-            Text(floor.map { "Level \($0 + 1) of \(bands.count)" } ?? "All levels")
-        }
-        .menuStyle(.automatic)
-        .fixedSize()
+        FilterOnePicker(
+            title: "",
+            options: [PickerOption("", "All levels")]
+                + bands.enumerated().map { i, b in
+                    PickerOption(String(i), "Level \(i + 1) of \(bands.count)  \u{00b7}  \(b.label)")
+                },
+            selection: Binding(get: { floor.map(String.init) ?? "" },
+                               set: { floor = $0.isEmpty ? nil : Int($0) }))
         .disabled(bands.count < 2)
         .help(bands.count < 2 ? "This map has one elevation." : "Draw only one elevation band.")
     }
@@ -785,16 +785,13 @@ private struct MapPackMenu: View {
     var onChange: (String?) -> Void
 
     var body: some View {
-        Menu {
-            Button("Auto") { onChange(nil) }
-            ForEach(packs) { p in
-                Button(p.name) { onChange(p.id) }
-            }
-        } label: {
-            Text("\(label): \(value.flatMap { id in packs.first { $0.id == id }?.name } ?? "Auto")")
-        }
-        .menuStyle(.automatic)
-        .fixedSize()
+        // "Auto" is the empty value, so the picker's vocabulary is the pack list plus one row and
+        // the binding does the nil translation.
+        FilterOnePicker(title: label,
+                        options: [PickerOption("", "Auto")] + packs.map { PickerOption($0.id, $0.name) },
+                        selection: Binding(get: { value ?? "" },
+                                           set: { onChange($0.isEmpty ? nil : $0) }),
+                        placeholder: "Find a pack\u{2026}")
         .help(label == "Geometry"
               ? "Which pack draws the walls. Auto prefers the game's own files."
               : "Which pack supplies the labels and the legend. Auto prefers an installed pack over the game's own thin set.")

@@ -20,13 +20,11 @@ struct KnowledgeView: View {
                         TextField("Search items, mobs, spells…", text: $query)
                             .textFieldStyle(.roundedBorder)
                             .onSubmit { Task { await search() } }
-                        Picker("", selection: $domain) {
-                            Text("All").tag("")
-                            Text("Items").tag("item")
-                            Text("Mobs").tag("mob")
-                            Text("Spells").tag("spell")
-                            Text("Quests").tag("quest")
-                        }.labelsHidden().frame(width: 100)
+                        FilterOnePicker(title: "", options: [
+                            PickerOption("", "All"), PickerOption("item", "Items"),
+                            PickerOption("mob", "Mobs"), PickerOption("spell", "Spells"),
+                            PickerOption("quest", "Quests"),
+                        ], selection: $domain)
                         Button("Search") { Task { await search() } }.keyboardShortcut(.defaultAction)
                         if searching { ProgressView().controlSize(.small) }
                     }.padding(8)

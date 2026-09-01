@@ -142,18 +142,11 @@ struct MobsView: View {
                 TextField("Search mobs…", text: $query)
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 420)
-                Menu {
-                    Button("Anywhere") { filterZone = "" }
-                    Divider()
-                    ForEach(catalogZones, id: \.self) { z in
-                        Button(z) { filterZone = z }
-                    }
-                } label: {
-                    Text(filterZone.isEmpty ? "Zone: anywhere" : "Zone: \(filterZone)")
-                        .font(.caption).lineLimit(1)
-                }
-                .menuStyle(.borderlessButton)
-                .frame(maxWidth: 220)
+                FilterOnePicker(title: "Zone",
+                                options: [PickerOption("", "anywhere")]
+                                    + catalogZones.map { PickerOption($0) },
+                                selection: $filterZone,
+                                placeholder: "Find a zone\u{2026}")
                 Text("Lvl").font(.caption).foregroundStyle(Theme.textDim)
                 TextField("min", text: $minLevel).textFieldStyle(.roundedBorder).frame(width: 46)
                 Text("–").font(.caption).foregroundStyle(Theme.textFaint)

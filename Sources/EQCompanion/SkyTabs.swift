@@ -64,7 +64,7 @@ struct SkyFilterBar: View {
                 SkyMultiSelect(label: "Filter by island", placeholder: "All islands",
                                options: store.facets.islands, selection: $store.islands)
                 SkyMultiSelect(label: "Filter by boss", placeholder: "All bosses",
-                               options: store.facets.bosses, selection: $store.bosses, width: 230)
+                               options: store.facets.bosses, selection: $store.bosses)
                 TextField("Search quest / item / reward / boss / island", text: $store.query)
                     .textFieldStyle(.roundedBorder).frame(minWidth: 260, maxWidth: 320).font(.caption)
                 Picker("Sort", selection: $store.sort) {

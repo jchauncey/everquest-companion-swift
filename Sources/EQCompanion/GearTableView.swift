@@ -38,7 +38,9 @@ struct GearTableView: View {
     @State private var sortKey = "AC"
     @State private var sortDescending = true
     @State private var opened: GearRow?
-    @State private var widths = GearColumnWidths.shared
+    /// This table's own column widths, scoped by its store key so a drag here never moves
+    /// a column on another table.
+    @State private var widths = ColumnWidths("eq.gear.columnWidths")
 
     private var showsWeaponColumns: Bool {
         GearColumnSet.showsWeaponColumns(slots: slots, weapons: weapons)
@@ -100,9 +102,9 @@ struct GearTableView: View {
                 table(result, looted: looted)
             }
         }
-        // A wider gutter than the 12pt the other tabs use: this tab's content runs edge to edge, so
-        // it needs visible air between the first column and the sidebar rather than nearly touching it.
-        .padding(.horizontal, 20)
+        // Content that runs edge to edge needs visible air between the first column and the
+        // sidebar. Shared with the Loot tab — see `DataTableMetrics.tabInset`.
+        .padding(.horizontal, DataTableMetrics.tabInset)
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Theme.background)
@@ -154,17 +156,20 @@ struct GearTableView: View {
             FlowRow(spacing: 8, lineSpacing: 8) {
                 TextField("Search gear", text: $query)
                     .textFieldStyle(.roundedBorder).frame(width: 200)
-                multiPicker(title: "Slots", empty: "every slot", options: equipSlots, selection: $slots)
-                multiPicker(title: "Weapon type", empty: "every kind", options: weaponPicks,
-                            selection: $weapons, label: { weaponPickLabel[$0] ?? $0 })
-                Picker("", selection: $effect) {
-                    ForEach(effectOptions, id: \.0) { Text($0.1).tag($0.0) }
-                }
-                .labelsHidden().fixedSize()
-                multiPicker(title: "Classes", empty: "every class", options: classAbbrs,
-                            selection: $classes, onEdit: { classesPinned = true })
-                // 155 zones is too many to hunt through a menu, so this one is typed at rather
-                // than scrolled - and what is already chosen stays pinned at the top of it.
+                FilterMultiPicker(title: "Slots", empty: "every slot",
+                                  options: equipSlots, selection: $slots,
+                                  placeholder: "Find a slot\u{2026}")
+                FilterMultiPicker(title: "Weapon type", empty: "every kind",
+                                  options: weaponPicks, selection: $weapons,
+                                  label: { weaponPickLabel[$0] ?? $0 },
+                                  placeholder: "Find a kind\u{2026}")
+                FilterOnePicker(title: "", options: effectOptions.map { PickerOption($0.0, $0.1) },
+                                selection: $effect)
+                FilterMultiPicker(title: "Classes", empty: "every class",
+                                  options: classAbbrs,
+                                  selection: Binding(get: { classes },
+                                                     set: { classes = $0; classesPinned = true }),
+                                  placeholder: "Find a class\u{2026}")
                 FilterMultiPicker(title: "Zones", empty: "everywhere",
                                   options: index.corpus.dropZones, selection: $zones,
                                   placeholder: "Find a zone\u{2026}")
@@ -220,35 +225,6 @@ struct GearTableView: View {
         .help(help)
     }
 
-    private func multiPicker(title: String, empty: String, options: [String],
-                             selection: Binding<Set<String>>,
-                             label: @escaping (String) -> String = { $0 },
-                             onEdit: @escaping () -> Void = {}) -> some View {
-        Menu {
-            Button("Clear") { selection.wrappedValue = []; onEdit() }
-            Divider()
-            ForEach(options, id: \.self) { o in
-                Button {
-                    if selection.wrappedValue.contains(o) { selection.wrappedValue.remove(o) }
-                    else { selection.wrappedValue.insert(o) }
-                    onEdit()
-                } label: {
-                    Label(label(o), systemImage: selection.wrappedValue.contains(o) ? "checkmark" : "")
-                }
-            }
-        } label: {
-            Text(pickerSummary(title: title, empty: empty, options: options,
-                               picked: selection.wrappedValue, label: label))
-                .lineLimit(1)
-        }
-        // The system's own pull-down bezel, sized to its text, and NOTHING after `fixedSize` that
-        // could hand it a flexible width again: `.borderlessButton` in a fixed frame drew a
-        // chrome-less label floating in a pool of its own padding (the drab look), and a trailing
-        // `maxWidth` let each menu stretch into the row's slack (the gaps between them). The label
-        // is bounded by shortening the TEXT, so the control is never wider than what it says.
-        .menuStyle(.automatic)
-        .fixedSize()
-    }
 
 
     // MARK: - The pipeline
@@ -380,166 +356,28 @@ struct GearTableView: View {
 
     // MARK: - The table
 
-    /// The width the columns actually need, so the table can be SCROLLED to rather than squeezed.
-    /// One definition, shared with what the row draws - see `GearColumnSet.totalWidth`.
-    private func tableWidth(showOwned: Bool) -> CGFloat {
-        GearColumnSet.totalWidth(columns(showOwned: showOwned)) { widths.width($0) }
-    }
-
-    /// A column's frame. The flexible column ASKS FOR THE REST rather than being handed a computed
-    /// number, and that is the whole point.
-    ///
-    /// It used to be arithmetic: measure the pane, subtract what the fixed columns need, give the
-    /// difference to the flexible one. That makes a row exactly as wide as the space it was
-    /// offered - with no give at all - so the moment anything took a few points away, the row was
-    /// over-committed. macOS does exactly that: when the rows outgrow the viewport the vertical
-    /// scroller claims ~15pt of content width, the row overflowed by that much, and an over-wide
-    /// HStack CENTRES its overflow - putting half of it off the left edge, where it sliced the
-    /// first thing in every row, the item icon. (`client.log`: `insetFromPane=0` on the first
-    /// layout, then `-8` once the scroller appeared.)
-    ///
-    /// Asking for `maxWidth: .infinity` instead means the row absorbs whatever it is actually
-    /// given, whether or not something else took a bite out of it first.
-    @ViewBuilder
-    private func columnFrame(_ c: GearColumn, _ content: some View) -> some View {
-        let alignment: Alignment = c.trailing ? .trailing : .leading
-        if c.flexible {
-            content.frame(maxWidth: .infinity, alignment: alignment)
-        } else {
-            content.frame(width: widths.width(c), alignment: alignment)
-        }
-    }
-
+    /// The gear table IS `DataTableView`; this tab supplies the columns and fills the cells.
+    /// Everything about layout — the pinned header, the resize handles, the horizontal scroll when
+    /// the columns do not fit, the flexible column — lives there, learned the hard way.
     private func table(_ result: (rows: [ScaledRow], total: Int), looted: Set<String>) -> some View {
-        let rows = result.rows
         let showOwned = !store.ownership.isEmpty || !looted.isEmpty
         let cols = columns(showOwned: showOwned)
-        return GeometryReader { geo in
-            // WIDER THAN THE PANE, THE TABLE SCROLLS; NARROWER, IT FILLS.
-            //
-            // An HStack wider than the width it is offered does not clip on the right - it spreads
-            // the overflow BOTH ways, and the half that goes left ends up under the sidebar, eating
-            // the item names. Inside a horizontal ScrollView the row is offered exactly the width
-            // it asked for, so nothing overflows and the columns a narrow window cannot show are
-            // scrolled to instead of stolen from the ones it can.
-            //
-            // The other direction is the dead band this replaces: columns totalling less than the
-            // pane used to stop short, leaving a couple of hundred points of empty window. That
-            // leftover now goes to the flexible column, so the table always reaches the far edge.
-            // Read the proxy ONCE. A `GeometryProxy` is live, not a snapshot: read again later (in
-            // an async task, say) it answers with the size at THAT moment, which is how the
-            // diagnostic below once reported a pane wider than the content inside it.
-            let pane = geo.size.width
-            let paneX = geo.frame(in: .global).minX
-            let need = tableWidth(showOwned: showOwned)
-            // A horizontal ScrollView is only reached for when the columns genuinely do not fit.
-            //
-            // It is not free: macOS backs it with an NSScrollView that adjusts its own content
-            // insets, and with the vertical scroller nested inside it the content sat 8pt LEFT of
-            // the pane - which sliced the left edge off the first thing in every row, the item
-            // icon. (`insetFromPane=-8` in client.log, against a gutter of exactly 8.) When the
-            // table fits, which is the normal case now that the flexible column absorbs the
-            // leftover, there is nothing to scroll and nothing to inset.
-            let scrolls = need > pane + 0.5
-            VStack(spacing: 0) {
-                if rows.isEmpty {
-                    Text(emptyText(looted)).font(.callout).foregroundStyle(Theme.textDim)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .multilineTextAlignment(.center).padding(.horizontal, 24)
-                } else if scrolls {
-                    ScrollView(.horizontal) {
-                        stack(rows, showOwned: showOwned, looted: looted, width: need, paneX: paneX)
-                    }
-                } else {
-                    stack(rows, showOwned: showOwned, looted: looted, width: nil, paneX: paneX)
-                }
-            }
-            .frame(width: pane, height: geo.size.height, alignment: .topLeading)
-            // Nobody working on this app can see it run, so the table states its own geometry to
-            // client.log - once per distinct layout, not per frame. Reading these numbers back beats
-            // reasoning about a screenshot: they say outright whether the content is wider than the
-            // pane (so it scrolls) and where the first cell of the first row actually begins.
-            .task(id: layoutDiagnostic(cols: cols, pane: pane, need: need, scrolls: scrolls)) {
-                model.note(layoutDiagnostic(cols: cols, pane: pane, need: need, scrolls: scrolls))
-            }
-        }
-    }
-
-    /// The header and the rows, INSIDE the same scroll view.
-    ///
-    /// The header used to sit above it, outside. That put the two in containers of different width
-    /// the moment the vertical scroller claimed its share, so the columns could not stay lined up
-    /// without the arithmetic that caused the clipping. Sharing one content width makes them agree
-    /// by construction, and pinning the header makes it stay put as you scroll - which a table this
-    /// tall wanted anyway.
-    ///
-    /// `width` is nil when the columns fit: the content then takes the viewport's width and the
-    /// flexible column absorbs it. When they do not fit it is the width they need, and the caller
-    /// has wrapped this in a horizontal scroll view.
-    private func stack(_ rows: [ScaledRow], showOwned: Bool, looted: Set<String>,
-                       width: CGFloat?, paneX: CGFloat) -> some View {
-        ScrollView(.vertical) {
-            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
-                Section {
-                    ForEach(Array(rows.prefix(500).enumerated()), id: \.element.id) { i, r in
-                        row(r, showOwned: showOwned, looted: looted, probe: i == 0 ? paneX : nil)
-                        Divider().overlay(Theme.border.opacity(0.5))
-                    }
-                    if rows.count > 500 {
-                        Text("\(Format.count(rows.count - 500)) more - narrow the filters to see them.")
-                            .font(.caption).foregroundStyle(Theme.textFaint).padding(8)
-                    }
-                } header: {
-                    VStack(spacing: 0) {
-                        header(showOwned: showOwned)
-                        Divider().overlay(Theme.border)
-                    }
-                    .background(Theme.background)
-                }
-            }
-            .frame(width: width, alignment: .leading)
-        }
-    }
-
-    /// Where the first row's NAME CELL lands, relative to the pane. Always reports, icon or not.
-    @ViewBuilder
-    private func cellProbe(_ paneX: CGFloat?, item: String) -> some View {
-        if let paneX {
-            GeometryReader { g in
-                let box = g.frame(in: .global)
-                Color.clear.task(id: Int(box.minX - paneX)) {
-                    model.note("gear first cell: \(item) insetFromPane=\(Int(box.minX - paneX))"
-                               + " width=\(Int(box.width))")
-                }
-            }
-        }
-    }
-
-    /// Reports where the first row's icon actually lands, relative to the pane it should sit in.
-    /// A negative `insetFromPane` means the icon is drawn left of the table's own left edge - which
-    /// is the only way its left side can be sliced off.
-    @ViewBuilder
-    private func iconProbe(_ paneX: CGFloat?, item: String, size: CGSize) -> some View {
-        if let paneX {
-            GeometryReader { g in
-                let box = g.frame(in: .global)
-                Color.clear.task(id: Int(box.minX - paneX)) {
-                    model.note("gear first icon: \(item) insetFromPane=\(Int(box.minX - paneX))"
-                               + " drawn=\(Int(box.width))x\(Int(box.height))"
-                               + " source=\(Int(size.width))x\(Int(size.height))")
-                }
-            }
-        }
-    }
-
-    /// One line describing the table's real layout, for `client.log`.
-    private func layoutDiagnostic(cols: [GearColumn], pane: CGFloat,
-                                  need: CGFloat, scrolls: Bool) -> String {
-        let each = cols.map { c in
-            c.flexible ? "\(c.key)=flex" : "\(c.key)=\(Int(widths.width(c)))"
-        }.joined(separator: " ")
-        return "gear table layout: pane=\(Int(pane)) need=\(Int(need)) "
-            + "scrolls=\(scrolls) gutter=\(Int(GearColumnSet.gutter)) iconBox=24 columns[\(each)]"
+        return DataTableView(
+            columns: cols.map(\.column),
+            rows: Array(result.rows.prefix(500)),
+            widths: widths,
+            sortKey: $sortKey,
+            sortDescending: $sortDescending,
+            emptyText: emptyText(looted),
+            rowLimit: 500,
+            overflowNote: { "\(Format.count($0)) more - narrow the filters to see them." },
+            cell: { column, r in
+                // The column list is the gear one; `DataColumn` carries only the layout half, so
+                // the kind is looked back up here.
+                let c = cols.first { $0.key == column.key }
+                return Group { if let c { cell(c, r, looted: looted) } }
+            },
+            onRowTap: { opened = $0.row })
     }
 
     private func emptyText(_ looted: Set<String>) -> String {
@@ -577,41 +415,6 @@ struct GearTableView: View {
     /// `spacing: 0` throughout: the gap between columns is the resize handle's own width, counted
     /// once by `tableWidth`. A second gap from the stack would make the drawn row wider than the
     /// frame that holds it, and the overflow would eat both ends of the table.
-    private func header(showOwned: Bool) -> some View {
-        HStack(spacing: 0) {
-            ForEach(columns(showOwned: showOwned)) { c in
-                HStack(spacing: 0) {
-                    columnFrame(c, sortHeader(c))
-                    GearColumnResizeHandle(current: widths.width(c),
-                                           set: { widths.set(c, $0) },
-                                           reset: { widths.reset() })
-                }
-            }
-        }
-        .font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.textFaint)
-        .padding(.vertical, 5)
-    }
-
-    private func sortHeader(_ c: GearColumn) -> some View {
-        Button {
-            if sortKey == c.key { sortDescending.toggle() }
-            // Numbers open biggest-first; text opens A-Z. Both are what the column is asked for.
-            else { sortKey = c.key; sortDescending = c.kind == .stat }
-        } label: {
-            HStack(spacing: 2) {
-                if c.trailing { Spacer(minLength: 0) }
-                Text(c.label).lineLimit(1)
-                if sortKey == c.key {
-                    Image(systemName: sortDescending ? "chevron.down" : "chevron.up").font(.caption2)
-                }
-                if !c.trailing { Spacer(minLength: 0) }
-            }
-            .foregroundStyle(sortKey == c.key ? Theme.gold : Theme.textFaint)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
     private func statText(_ v: Double?, _ key: String) -> String {
         guard let v else { return "" }
         if key == "RATIO" { return String(format: "%.2f", v) }
@@ -646,55 +449,15 @@ struct GearTableView: View {
         return t.isEmpty && looted.contains(r.key) ? "Looted" : t
     }
 
-    /// `probe` carries the pane's own global x for the FIRST row only: the icon compares its own
-    /// global x against it and logs the difference, which is the number that says whether anything
-    /// is drawn left of the pane (and so under the sidebar).
-    private func row(_ r: ScaledRow, showOwned: Bool, looted: Set<String>,
-                     probe: CGFloat? = nil) -> some View {
-        HStack(spacing: 0) {
-            ForEach(columns(showOwned: showOwned)) { c in
-                // The gutter is padding, not a filler view: a `Color` is flexible on both axes and
-                // would stretch the row the way it once stretched the header. It is also the row's
-                // ONLY gap, so header and row agree column for column.
-                columnFrame(c, cell(c, r, looted: looted, probe: c.kind == .name ? probe : nil))
-                    .padding(.trailing, GearColumnSet.gutter)
-                    // The name CELL reports too, not just the icon inside it: an item with no
-                    // artwork drew no probe at all, which is why the log went quiet exactly when
-                    // the answer was wanted.
-                    .background(cellProbe(c.kind == .name ? probe : nil, item: r.row.name))
-            }
-        }
-        .font(.system(size: 13))
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
-    }
-
     @ViewBuilder
-    private func cell(_ c: GearColumn, _ r: ScaledRow, looted: Set<String>,
-                      probe: CGFloat? = nil) -> some View {
+    private func cell(_ c: GearColumn, _ r: ScaledRow, looted: Set<String>) -> some View {
         switch c.kind {
         case .name:
-            // THE NAME IS THE PART THAT GIVES WAY. Icon and era chip are fixed size; the name takes
-            // whatever is left and truncates. Without that the row's content can exceed the column,
-            // and an over-wide HStack is CENTRED, not clipped - which slid the icon off the left of
-            // its own cell and sliced it against the edge of the table.
-            HStack(spacing: 6) {
-                if let img = GameData.shared.itemIcon(r.row.iconId) {
-                    Image(nsImage: img).resizable().frame(width: 24, height: 24)
-                        .background(iconProbe(probe, item: r.row.name, size: img.size))
-                }
-                Button { opened = r.row } label: {
-                    Text(r.row.name)
-                        .foregroundStyle(Color(hex: 0x6fbf7f))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.plain)
-                if r.row.era == .outOfEra { Chip(text: "out of era", color: Theme.orange) }
-                else if r.row.era == .unknown { Chip(text: "era?", color: Theme.textFaint) }
-            }
-            .help(r.row.name)
+            ItemNameCell(name: r.row.name, iconId: r.row.iconId,
+                         chips: r.row.era == .outOfEra ? [ItemChip(text: "out of era", color: Theme.orange)]
+                              : r.row.era == .unknown ? [ItemChip(text: "era?", color: Theme.textFaint)]
+                              : [],
+                         onOpen: { opened = r.row })
         case .stat:
             Text(statText(value(r, c.key), c.key)).foregroundStyle(Theme.text).monospacedDigit()
         case .text:

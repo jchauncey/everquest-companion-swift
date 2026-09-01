@@ -61,7 +61,11 @@ struct LootView: View {
     @State private var query = ""
     @State private var groupByItem = true
     @State private var questOnly = false
-    @State private var sort: LootSort = LootView.storedSort
+    /// Sorted by CLICKING A COLUMN, like every other table in the app. What is stored is the
+    /// column and the direction; the old `Sort` dropdown was a second way to say the same thing.
+    @State private var sortKey = LootView.storedSortKey
+    @State private var sortDescending = UserDefaults.standard.object(forKey: "eq.lootSortDesc") as? Bool ?? true
+    @State private var widths = ColumnWidths("eq.loot.columnWidths")
     @State private var showInvOnly = false
     @State private var countSource: LootCountSource = LootView.storedCountSource
     @State private var showTradeskill = UserDefaults.standard.bool(forKey: "eq.loot.showTradeskill")
@@ -70,7 +74,6 @@ struct LootView: View {
 
     // The drill-down, and the flat ledger's window.
     @State private var selected: String?
-    @State private var selectedRow: LootGroupRow.ID?
     @State private var flat = LiveView()
     @State private var flatSelection: String?
     @State private var offset = 0
@@ -78,8 +81,16 @@ struct LootView: View {
 
     /// Times looted stays the default: the grouped table's headline question is "what do I keep
     /// picking up".
-    private static var storedSort: LootSort {
-        LootSort(rawValue: UserDefaults.standard.string(forKey: "eq.lootSort") ?? "") ?? .count
+    /// The stored column, migrated from the retired `Sort` dropdown so an existing preference
+    /// keeps meaning what it meant.
+    private static var storedSortKey: String {
+        if let k = UserDefaults.standard.string(forKey: "eq.lootSortKey") { return k }
+        switch UserDefaults.standard.string(forKey: "eq.lootSort") ?? "" {
+        case "recent": return "last"
+        case "name": return "item"
+        case "zones": return "zones"
+        default: return "count"
+        }
     }
 
     /// `both` and not `inventory`: a dump covers only what was OPEN when it was written, so making
@@ -132,7 +143,11 @@ struct LootView: View {
             toolbar
             summary
             notableStrip
-            if groupByItem { groupedTable } else { flatTable }
+            // The table takes the SAME left edge as the chrome above it. Every other row in this
+            // stack pads itself; the table is the one that ran flush against the sidebar, which is
+            // what put the item icons hard against the menu.
+            Group { if groupByItem { groupedTable } else { flatTable } }
+                .padding(.horizontal, DataTableMetrics.tabInset)
             footer
         }
     }
@@ -168,7 +183,7 @@ struct LootView: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 6)
+        .padding(.horizontal, DataTableMetrics.tabInset).padding(.top, 10).padding(.bottom, 6)
     }
 
     // MARK: - Row 2: the filters
@@ -183,13 +198,6 @@ struct LootView: View {
                 .frame(width: 210)
             Toggle("Group by item", isOn: $groupByItem).toggleStyle(.switch).font(.caption)
             Toggle("Only Plane of Sky items", isOn: $questOnly).toggleStyle(.switch).font(.caption)
-            if groupByItem {
-                Picker("Sort", selection: $sort) {
-                    ForEach(LootSort.allCases, id: \.self) { Text($0.label).tag($0) }
-                }
-                .frame(width: 170)
-                .onChange(of: sort) { _, v in UserDefaults.standard.set(v.rawValue, forKey: "eq.lootSort") }
-            }
             if groupByItem, let n = agg?.invOnly.count, n > 0 {
                 // The inventory-only tail is kept OUT of the default browse so the table stays a loot
                 // table — the chip says how many are hiding. A SEARCH always reaches it anyway: typing
@@ -211,7 +219,7 @@ struct LootView: View {
                 .help("Re-read the inventory export")
         }
         .font(.caption)
-        .padding(.horizontal, 12).padding(.vertical, 6)
+        .padding(.horizontal, DataTableMetrics.tabInset).padding(.vertical, 6)
     }
 
     // MARK: - The caption
@@ -227,7 +235,7 @@ struct LootView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12).padding(.bottom, 6)
+        .padding(.horizontal, DataTableMetrics.tabInset).padding(.bottom, 6)
     }
 
     private var summaryLine: String {
@@ -284,7 +292,7 @@ struct LootView: View {
                         UserDefaults.standard.set(v, forKey: "eq.loot.showTradeskill")
                     }
             }
-            .padding(.horizontal, 12).padding(.vertical, 6)
+            .padding(.horizontal, DataTableMetrics.tabInset).padding(.vertical, 6)
             .background(Theme.paper)
             .overlay(alignment: .bottom) { Rectangle().fill(Theme.border).frame(height: 1) }
         }
@@ -297,7 +305,7 @@ struct LootView: View {
     private var groupRows: [LootGroupRow] {
         guard let a = agg else { return [] }
         var rows = filter(a.groups)
-        rows.sort(by: sort.compare)
+        rows.sort { LootColumnSort.compare($0, $1, key: sortKey, descending: sortDescending) }
         let tail = filter(a.invOnly)
         return (showInvOnly || !trimmedQuery.isEmpty) ? rows + tail : rows
     }
@@ -319,47 +327,66 @@ struct LootView: View {
         return out
     }
 
+    /// The loot table's columns. Same shape, same widths vocabulary and same interactions as the
+    /// Gear tab's — because it is the same table: see `DataTableView`.
+    private var groupColumns: [DataColumn] {
+        [
+            DataColumn(key: "item", label: "Item", width: 300),
+            DataColumn(key: "count", label: "Times looted", width: 92, trailing: true),
+            DataColumn(key: "estimate", label: "In inventory (est.)", width: 118, trailing: true),
+            // Top source takes the leftover: it is the column most often cut short, and unlike the
+            // item name it was never the one crowding the table.
+            DataColumn(key: "source", label: "Top source", width: 180, flexible: true),
+            DataColumn(key: "zones", label: "Zones", width: 60, trailing: true),
+            DataColumn(key: "last", label: "Last looted", width: 150, trailing: true),
+        ]
+    }
+
     private var groupedTable: some View {
-        Table(groupRows, selection: $selectedRow) {
-            TableColumn("Item") { r in
-                HStack(spacing: 5) {
-                    Text(r.item).foregroundStyle(r.invOnly ? Theme.textDim : Theme.text).lineLimit(1)
-                    ForEach(Array(LootKnowledge.shared.facts(r.item).chips.enumerated()), id: \.offset) { _, c in
-                        Chip(text: c.0, color: LootChipColor.of(c.1))
-                    }
-                    if let d = r.disposition { Chip(text: d, color: LootChipColor.of(d)) }
-                    if r.invOnly { Chip(text: "export only", color: Theme.textFaint) }
-                }
-            }
-            .width(min: 220, ideal: 320)
-            TableColumn("Times looted") { r in
-                Text(r.invOnly ? LootFmt.none : Format.count(r.count)).monospacedDigit()
-            }
-            .width(min: 80, ideal: 90)
-            TableColumn("In inventory (est.)") { r in
-                // An ESTIMATE, never a fact: the log cannot see bank deposits, trades or vendor sales
-                // that happen off-camera, so it renders as a `~` chip like every other inferred value.
-                if r.estimate > 0 { Chip(text: "~\(r.estimate)", color: Theme.textDim) }
-                else { Text(LootFmt.none).foregroundStyle(Theme.textFaint) }
-            }
-            .width(min: 100, ideal: 110)
-            TableColumn("Top source") { r in
-                Text(r.topSource ?? LootFmt.none).foregroundStyle(Theme.textDim).lineLimit(1)
-            }
-            .width(min: 140, ideal: 200)
-            TableColumn("Zones") { r in
-                Text(r.zoneCount > 0 ? String(r.zoneCount) : LootFmt.none)
-                    .monospacedDigit().foregroundStyle(Theme.textDim)
-            }
-            .width(min: 50, ideal: 60)
-            TableColumn("Last looted") { r in
-                Text(r.invOnly ? LootFmt.none : Format.stamp(ms: r.last))
-                    .foregroundStyle(Theme.textDim).monospacedDigit()
-            }
-            .width(min: 130, ideal: 150)
-        }
-        .onChange(of: selectedRow) { _, v in
-            if let k = v, let row = groupRows.first(where: { $0.id == k }) { open(row.item) }
+        DataTableView(
+            columns: groupColumns,
+            rows: groupRows,
+            widths: widths,
+            sortKey: Binding(get: { sortKey },
+                             set: { sortKey = $0; UserDefaults.standard.set($0, forKey: "eq.lootSortKey") }),
+            sortDescending: Binding(get: { sortDescending },
+                                    set: { sortDescending = $0; UserDefaults.standard.set($0, forKey: "eq.lootSortDesc") }),
+            emptyText: trimmedQuery.isEmpty
+                ? "No loot in this slice. Widen the range above, or turn off the filters."
+                : "Nothing looted or held matches \u{201C}\(query)\u{201D}.",
+            overflowNote: { "\(Format.count($0)) more - narrow the filters to see them." },
+            cell: { c, r in groupCell(c, r) },
+            onRowTap: { open($0.item) })
+    }
+
+    /// One cell. The contents are the loot tab's business; the layout is the table's.
+    @ViewBuilder
+    private func groupCell(_ c: DataColumn, _ r: LootGroupRow) -> some View {
+        switch c.key {
+        case "item":
+            // The SAME cell the Gear table draws: an item looks like itself on either tab.
+            ItemNameCell(
+                name: r.item,
+                chips: LootKnowledge.shared.facts(r.item).chips.map { ItemChip(text: $0.0, color: LootChipColor.of($0.1)) }
+                    + (r.disposition.map { [ItemChip(text: $0, color: LootChipColor.of($0))] } ?? [])
+                    + (r.invOnly ? [ItemChip(text: "export only", color: Theme.textFaint)] : []),
+                dimmed: r.invOnly,
+                onOpen: { open(r.item) })
+        case "count":
+            Text(r.invOnly ? LootFmt.none : Format.count(r.count)).monospacedDigit()
+        case "estimate":
+            // An ESTIMATE, never a fact: the log cannot see bank deposits, trades or vendor sales
+            // that happen off-camera, so it renders as a `~` chip like every other inferred value.
+            if r.estimate > 0 { Chip(text: "~\(r.estimate)", color: Theme.textDim) }
+            else { Text(LootFmt.none).foregroundStyle(Theme.textFaint) }
+        case "source":
+            Text(r.topSource ?? LootFmt.none).foregroundStyle(Theme.textDim).lineLimit(1)
+        case "zones":
+            Text(r.zoneCount > 0 ? String(r.zoneCount) : LootFmt.none)
+                .monospacedDigit().foregroundStyle(Theme.textDim)
+        default:
+            Text(r.invOnly ? LootFmt.none : Format.stamp(ms: r.last))
+                .foregroundStyle(Theme.textDim).monospacedDigit()
         }
     }
 
@@ -438,7 +465,7 @@ struct LootView: View {
             // folded here and says what it is doing in its own caption.
             if !groupByItem { WindowStatus(live: flat) }
         }
-        .padding(.horizontal, 12).padding(.vertical, 6)
+        .padding(.horizontal, DataTableMetrics.tabInset).padding(.vertical, 6)
     }
 
     private var groupedNote: String {
@@ -565,7 +592,6 @@ struct LootView: View {
 
     private func closeDetail() {
         selected = nil
-        selectedRow = nil
         flatSelection = nil
     }
 

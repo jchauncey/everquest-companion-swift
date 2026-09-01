@@ -739,38 +739,44 @@ struct LootGroupRow: Sendable, Identifiable, Equatable {
     var id: String { key }
 }
 
-/// Which order the grouped table is in. Every comparator is TOTAL and bottoms out in the item name:
-/// EQ log timestamps are second-resolution, so a corpse that yields three items writes three rows
-/// with the SAME ts, and ties are the common case rather than the corner.
-enum LootSort: String, CaseIterable, Sendable {
-    case count, recent, name, zones
+/// Ordering the loot table by one of its own columns — what the retired `Sort` dropdown did, for
+/// every column rather than four.
+///
+/// EVERY COMPARATOR IS TOTAL and bottoms out in the item name. That is not tidiness: EQ log
+/// timestamps are second-resolution, so a corpse yielding three items writes three rows with the
+/// SAME ts. Ties are the common case here, not the corner, and without a final tie-break equal rows
+/// would shuffle between renders.
+///
+/// An empty cell sorts LAST in both directions, matching the gear table — "sort by top source"
+/// should open with the rows that state one, not a screenful of dashes.
+enum LootColumnSort {
+    static func compare(_ a: LootGroupRow, _ b: LootGroupRow, key: String, descending: Bool) -> Bool {
+        func byName() -> Bool { a.item.lowercased() < b.item.lowercased() }
 
-    var label: String {
-        switch self {
-        case .count: return "Times looted"
-        case .recent: return "Last looted"
-        case .name: return "Name"
-        case .zones: return "Zones"
+        func number(_ x: Double, _ y: Double) -> Bool {
+            if x == y { return byName() }
+            return descending ? x > y : x < y
         }
-    }
+        func text(_ x: String, _ y: String) -> Bool {
+            // Absent is not "" sorted first: it goes last whichever way the arrow points.
+            if x.isEmpty != y.isEmpty { return y.isEmpty }
+            if x.caseInsensitiveCompare(y) == .orderedSame { return byName() }
+            let c = x.localizedCaseInsensitiveCompare(y)
+            return descending ? c == .orderedDescending : c == .orderedAscending
+        }
 
-    func compare(_ a: LootGroupRow, _ b: LootGroupRow) -> Bool {
-        switch self {
-        case .count:
-            if a.count != b.count { return a.count > b.count }
-            if a.last != b.last { return a.last > b.last }
-        case .recent:
-            if a.last != b.last { return a.last > b.last }
-            if a.count != b.count { return a.count > b.count }
-        case .zones:
-            if a.zoneCount != b.zoneCount { return a.zoneCount > b.zoneCount }
-            if a.count != b.count { return a.count > b.count }
-        case .name:
-            break
+        switch key {
+        case "item": return text(a.item, b.item)
+        case "count": return number(Double(a.count), Double(b.count))
+        case "estimate": return number(Double(a.estimate), Double(b.estimate))
+        case "source": return text(a.topSource ?? "", b.topSource ?? "")
+        case "zones": return number(Double(a.zoneCount), Double(b.zoneCount))
+        case "last": return number(Double(a.last), Double(b.last))
+        default: return byName()
         }
-        return a.item.lowercased() < b.item.lowercased()
     }
 }
+
 
 // MARK: - The aggregate
 

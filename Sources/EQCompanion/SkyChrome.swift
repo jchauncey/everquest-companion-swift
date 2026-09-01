@@ -11,42 +11,26 @@ struct SkyMultiSelect: View {
     var placeholder: String
     var options: [String]
     @Binding var selection: [String]
-    var width: CGFloat = 190
 
-    /// A stored pick the data no longer offers stays in the list, so the user can SEE the chip
-    /// that is hiding everything and take it off.
-    private var offered: [String] {
-        var out = options
-        let known = Set(options)
-        for p in selection where !known.contains(p) { out.append(p) }
-        return out
-    }
-
+    /// One dropdown for the whole app: this is `FilterMultiPicker` with an array binding. The rule
+    /// this control was written for - a stored pick the data no longer offers stays visible, so the
+    /// filter hiding everything can be seen and taken off - now lives in that component, which is
+    /// why this is a wrapper rather than a second implementation.
     var body: some View {
-        Menu {
-            if !selection.isEmpty {
-                Button("Clear") { selection = [] }
-                Divider()
-            }
-            ForEach(offered, id: \.self) { o in
-                Button {
-                    if selection.contains(o) { selection.removeAll { $0 == o } } else { selection.append(o) }
-                } label: {
-                    Label(o, systemImage: selection.contains(o) ? "checkmark" : "")
-                }
-            }
-        } label: {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(label).font(.caption2).foregroundStyle(Theme.textFaint)
-                Text(selection.isEmpty ? placeholder : selection.joined(separator: ", "))
-                    .font(.caption)
-                    .foregroundStyle(selection.isEmpty ? Theme.textDim : Theme.gold)
-                    .lineLimit(1)
-            }
-            .frame(width: width, alignment: .leading)
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
+        FilterMultiPicker(
+            title: label,
+            empty: placeholder,
+            options: options,
+            selection: Binding(
+                get: { Set(selection) },
+                // Written back in the OPTIONS' order, with anything the data no longer offers kept
+                // on the end - so the stored list stays stable across edits instead of reshuffling.
+                set: { picked in
+                    let known = Set(options)
+                    selection = options.filter { picked.contains($0) }
+                        + picked.subtracting(known).sorted()
+                }),
+            placeholder: "Find\u{2026}")
     }
 }
 

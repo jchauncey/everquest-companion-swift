@@ -59,6 +59,13 @@ struct ItemCardView: View {
                 }
                 .buttonStyle(.plain).foregroundStyle(Theme.gold)
             }
+            // The artwork, at the size the game's own item window shows it. Looked up by NAME
+            // rather than from the gear row, so a card opened for something the gear index does not
+            // carry - a quest piece, a tradeskill component - still shows its picture.
+            if let img = GameData.shared.item(named: name)?.iconId.flatMap({ GameData.shared.itemIcon($0) }) {
+                Image(nsImage: img).resizable().frame(width: 40, height: 40)
+                    .accessibilityLabel("\(name) icon")
+            }
             Text(name).font(.headline).foregroundStyle(Theme.text).lineLimit(1)
             Spacer(minLength: 4)
             if let onClose { Button("Close") { onClose() }.buttonStyle(OutlineButtonStyle()) }

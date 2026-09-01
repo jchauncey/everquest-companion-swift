@@ -27,39 +27,39 @@ private struct ProposeWidth: ViewModifier, Layout {
 
 final class GearColumnsTests: XCTestCase {
     @MainActor
-    private func store() -> (GearColumnWidths, UserDefaults) {
+    private func store() -> (ColumnWidths, UserDefaults) {
         let d = UserDefaults(suiteName: "gear-columns-\(UUID().uuidString)")!
-        return (GearColumnWidths(d), d)
+        return (ColumnWidths("test.widths", d), d)
     }
 
     @MainActor
     func testAnUntouchedColumnKeepsItsDefault() {
         let (w, _) = store()
         let c = GearColumn(key: "zone", label: "Zone", kind: .text, defaultWidth: 150)
-        XCTAssertEqual(w.width(c), 150)
+        XCTAssertEqual(w.width(c.column), 150)
     }
 
     @MainActor
     func testADraggedWidthPersistsAndIsClamped() {
         let (w, d) = store()
         let c = GearColumn(key: "name", label: "Item", kind: .name, defaultWidth: 300)
-        w.set(c, 420, d)
-        XCTAssertEqual(w.width(c), 420)
+        w.set(c.column, 420, d)
+        XCTAssertEqual(w.width(c.column), 420)
         // A drag past either end is held at the end rather than losing the column.
-        w.set(c, 5, d)
-        XCTAssertEqual(w.width(c), GearColumn.minWidth)
-        w.set(c, 5000, d)
-        XCTAssertEqual(w.width(c), GearColumn.maxWidth)
+        w.set(c.column, 5, d)
+        XCTAssertEqual(w.width(c.column), DataColumn.minWidth)
+        w.set(c.column, 5000, d)
+        XCTAssertEqual(w.width(c.column), DataColumn.maxWidth)
 
         // It survives a relaunch, and only the dragged column is stored.
-        w.set(c, 260, d)
-        let reloaded = GearColumnWidths(d)
-        XCTAssertEqual(reloaded.width(c), 260)
-        XCTAssertEqual(reloaded.width(GearColumn(key: "zone", label: "Zone", kind: .text, defaultWidth: 150)), 150,
+        w.set(c.column, 260, d)
+        let reloaded = ColumnWidths("test.widths", d)
+        XCTAssertEqual(reloaded.width(c.column), 260)
+        XCTAssertEqual(reloaded.width(GearColumn(key: "zone", label: "Zone", kind: .text, defaultWidth: 150).column), 150,
                        "a column never dragged still follows the shipped default")
 
         reloaded.reset(d)
-        XCTAssertEqual(GearColumnWidths(d).width(c), 300)
+        XCTAssertEqual(ColumnWidths("test.widths", d).width(c.column), 300)
     }
 
     func testWeaponColumnsFollowTheSlotFilter() {
@@ -115,7 +115,7 @@ final class GearColumnsTests: XCTestCase {
             GearColumn(key: "zone", label: "Zone", kind: .text, defaultWidth: 150),
             GearColumn(key: "wish", label: "Wish list", kind: .wish, defaultWidth: 128),
         ]
-        let expected = GearColumnSet.totalWidth(cols) { $0.defaultWidth }
+        let expected = DataTableMetrics.totalWidth(cols.map(\.column)) { $0.width }
 
         struct Probe: View {
             let cols: [GearColumn]
@@ -126,7 +126,7 @@ final class GearColumnsTests: XCTestCase {
                     ForEach(cols) { c in
                         Text(c.label)
                             .frame(width: c.defaultWidth, alignment: c.trailing ? .trailing : .leading)
-                            .padding(.trailing, GearColumnSet.gutter)
+                            .padding(.trailing, DataTableMetrics.gutter)
                     }
                     Spacer(minLength: 0)
                 }
@@ -382,12 +382,12 @@ final class GearColumnsTests: XCTestCase {
     /// tall container, the handle must still be a handle.
     @MainActor
     func testTheResizeHandleDoesNotSwallowTheHeightItIsOffered() {
-        let handle = GearColumnResizeHandle(current: 300, set: { _ in }, reset: {})
+        let handle = ColumnResizeHandle(current: 300, set: { _ in }, reset: {})
         let host = NSHostingView(rootView: handle)
 
-        XCTAssertEqual(host.fittingSize.height, GearColumnResizeHandle.hitHeight, accuracy: 1,
+        XCTAssertEqual(host.fittingSize.height, ColumnResizeHandle.hitHeight, accuracy: 1,
                        "the handle's ideal height must be its own, not the container's")
-        XCTAssertEqual(host.fittingSize.width, GearColumnResizeHandle.hitWidth, accuracy: 1)
+        XCTAssertEqual(host.fittingSize.width, ColumnResizeHandle.hitWidth, accuracy: 1)
     }
 
     /// The same invariant where it actually bit: a header row stacked above the scrolling body,
@@ -412,7 +412,7 @@ final class GearColumnsTests: XCTestCase {
                             HStack(spacing: 0) {
                                 Text(label).font(.system(size: 12, weight: .semibold))
                                     .frame(width: 100, alignment: .leading)
-                                GearColumnResizeHandle(current: 100, set: { _ in }, reset: {})
+                                ColumnResizeHandle(current: 100, set: { _ in }, reset: {})
                             }
                         }
                         Spacer(minLength: 0)

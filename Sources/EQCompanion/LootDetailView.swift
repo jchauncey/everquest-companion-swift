@@ -132,8 +132,14 @@ struct LootDetailView: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(Theme.textDim)
             Text("›").foregroundStyle(Theme.textFaint)
-            if let icon = GameData.shared.itemIcon(facts.iconId) {
-                Image(nsImage: icon).resizable().frame(width: 20, height: 20)
+            // The artwork at the size the item's own card shows it — this IS the detailed view of
+            // the item, so it leads with the picture rather than a thumbnail in a breadcrumb.
+            // Falls back to a lookup by name: `facts.iconId` is empty for anything the knowledge
+            // corpus does not carry under this exact spelling, and a ` +1` variant is exactly that.
+            if let icon = GameData.shared.itemIcon(facts.iconId)
+                ?? GameData.shared.item(named: item)?.iconId.flatMap({ GameData.shared.itemIcon($0) }) {
+                Image(nsImage: icon).resizable().frame(width: 40, height: 40)
+                    .accessibilityLabel("\(item) icon")
             }
             Text(item).font(.title3.weight(.semibold)).foregroundStyle(Theme.gold)
             ForEach(Array(facts.chips.enumerated()), id: \.offset) { _, c in

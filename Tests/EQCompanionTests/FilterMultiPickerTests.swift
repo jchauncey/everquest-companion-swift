@@ -71,6 +71,43 @@ final class FilterMultiPickerTests: XCTestCase {
                        "Zones: 2 of 9")
     }
 
+    /// A pick the data has stopped offering must stay visible, or it is a filter hiding everything
+    /// with no way to see it. This is the rule the Plane of Sky pickers were written for, and it
+    /// moved into the shared component when they folded into it.
+    func testAStoredPickTheOptionsNoLongerOfferStaysRemovable() {
+        let options = ["Befallen", "Guk"]
+        let picked: Set<String> = ["Guk", "A Zone That Was Renamed"]
+        // Mirrors the component's own `chosen`: known picks in options order, then the orphans.
+        let known = Set(options)
+        let chosen = options.filter { picked.contains($0) } + picked.subtracting(known).sorted()
+        XCTAssertEqual(chosen, ["Guk", "A Zone That Was Renamed"])
+        XCTAssertTrue(chosen.contains("A Zone That Was Renamed"),
+                      "an orphan pick must be drawn from its own value, not dropped")
+    }
+
+    /// Single-select shares the sheet but not the pinned block: one choice, and picking closes.
+    @MainActor
+    func testTheSingleSelectPickerRendersAndNamesItsCurrentChoice() {
+        let host = NSHostingView(rootView: FilterOnePicker(
+            title: "Zone",
+            options: [PickerOption("", "anywhere"), PickerOption("guk", "Lower Guk")],
+            selection: .constant("guk")))
+        XCTAssertLessThan(host.fittingSize.width, 260)
+        XCTAssertGreaterThan(host.fittingSize.width, 0)
+    }
+
+    /// Value and label are separate, because the corpus's spelling is not always the player's.
+    func testAnOptionCanReadDifferentlyFromWhatItStores() {
+        let o = PickerOption("1hs", "One-handed slashing")
+        XCTAssertEqual(o.value, "1hs")
+        XCTAssertEqual(o.label, "One-handed slashing")
+        XCTAssertEqual(o.id, "1hs")
+        // The plain case still spells itself.
+        XCTAssertEqual(PickerOption("Guk").label, "Guk")
+        XCTAssertEqual([PickerOption].of(["a", "b"]).map(\.label), ["a", "b"])
+        XCTAssertEqual([PickerOption].of(["1hs"], label: { _ in "One-handed" }).map(\.label), ["One-handed"])
+    }
+
     /// The picker must render with the real 155-zone vocabulary without being asked for an
     /// unbounded width - it sits in the filter row beside everything else.
     @MainActor

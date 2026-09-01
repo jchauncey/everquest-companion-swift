@@ -90,11 +90,11 @@ struct ExaltationView: View {
             ])
             TextField("Search effect or item", text: $query)
                 .textFieldStyle(.roundedBorder).frame(width: 200)
-            Picker("", selection: $slot) {
-                Text("All slots").tag("ALL")
-                ForEach(equipSlots, id: \.self) { Text($0).tag($0) }
-            }
-            .labelsHidden().frame(width: 120)
+            FilterOnePicker(title: "",
+                            options: [PickerOption("ALL", "All slots")]
+                                + equipSlots.map { PickerOption($0) },
+                            selection: $slot,
+                            placeholder: "Find a slot\u{2026}")
             Text("Group by: Effect").font(.caption).foregroundStyle(Theme.textFaint)
             chip("Usable by these classes", $trioOnly,
                  "Hide donors none of the classes in the filter can use")
