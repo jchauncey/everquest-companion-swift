@@ -39,6 +39,9 @@ struct MapPaneRow: Identifiable, Equatable {
     var id: String
     var name: String
     var level: String?
+    /// The `MobNameConvention.isNamed` verdict, stamped when the row is built (the rare-loot leg
+    /// needs the item corpus, which the pure grouping must not reach for). Labels are never named.
+    var named = false
     var pins: [MobPin]
     var zoneCount: Int
     /// The page stated a position but names several zones, so it cannot be attributed here.
@@ -67,6 +70,37 @@ struct MapPaneRow: Identifiable, Equatable {
     }
 }
 
+/// The one classifier for named vs common everywhere in the app — the Maps pane's split and
+/// `MapAnnotations.Filter` both ask here, so the pack generator and the on-screen groups can
+/// never disagree about a mob.
+///
+/// Three signals, any one of which makes a mob NAMED:
+///   1. A capitalized name — the wiki's own convention ("Skeleton Lrodd", "Raster of Guk").
+///   2. A "the " prefix — the definite article is the wiki naming a unique ("the ghoul lord").
+///   3. A SINGLE fixed level AND loot few others drop. This wiki spells most camp nameds like
+///      common spawns ("a ghoul sage", "a frenzied ghoul"), but a named is one creature — its
+///      page states one level, not a range — and its reason to exist is its drop. Either half
+///      alone is far too loose (half the trash in the bestiary states one level; plenty of
+///      trash is the sole recorded dropper of nothing), together they recover exactly the camp
+///      rosters ("a ghoul executioner" in, "a dar ghoul knight" out).
+enum MobNameConvention {
+    static func isCommon(_ name: String) -> Bool {
+        name.first.map { $0.isLowercase } ?? true
+    }
+
+    /// One stated level, no range, no "~", no "?" — the page describes a single creature.
+    static func singleLevel(_ level: String?) -> Bool {
+        guard let l = level?.trimmingCharacters(in: .whitespaces), !l.isEmpty else { return false }
+        return l.allSatisfy(\.isNumber)
+    }
+
+    static func isNamed(_ name: String, level: String?, dropsRareLoot: Bool) -> Bool {
+        if !isCommon(name) { return true }
+        if name.lowercased().hasPrefix("the ") { return true }
+        return singleLevel(level) && dropsRareLoot
+    }
+}
+
 enum MapPaneRows {
     /// Pins draw before the pane is filtered, so a zone with thousands of stated positions can
     /// never stall a frame. The chip says when the cap bit.
@@ -87,11 +121,14 @@ enum MapPaneRows {
     /// the same fold the Mobs tab uses, never a second one.
     @MainActor
     static func mobRows(zoneName: String) -> [MapPaneRow] {
-        rows(from: GameData.shared.mobs(inLogZone: zoneName))
+        rows(from: GameData.shared.mobs(inLogZone: zoneName),
+             rareLoot: { GameData.shared.dropsRareLoot($0) })
     }
 
     /// Catalog entries to pane rows, level-ascending then by name — the Mobs tab's order.
-    static func rows(from catalog: [GameData.Mob]) -> [MapPaneRow] {
+    /// `rareLoot` answers the third leg of the named verdict (see `MobNameConvention.isNamed`).
+    static func rows(from catalog: [GameData.Mob],
+                     rareLoot: (String) -> Bool = { _ in false }) -> [MapPaneRow] {
         func sortLevel(_ m: GameData.Mob) -> Int? {
             guard let r = m.level.range(of: #"\d+"#, options: .regularExpression) else { return nil }
             return Int(m.level[r])
@@ -115,6 +152,8 @@ enum MapPaneRows {
                               id: m.page,
                               name: m.name,
                               level: m.level.isEmpty ? nil : m.level,
+                              named: MobNameConvention.isNamed(m.name, level: m.level,
+                                                              dropsRareLoot: rareLoot(m.name)),
                               pins: ambiguous ? [] : all,
                               zoneCount: zoneCount,
                               unattributable: ambiguous && !all.isEmpty,
@@ -146,6 +185,33 @@ enum MapPaneRows {
         let words = query.lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
         if words.isEmpty { return rows }
         return rows.filter { r in words.allSatisfy { r.searchKey.contains($0) } }
+    }
+
+    /// The pane's two mob groups, each alphabetical: named and rare mobs first, common spawns
+    /// under them. A group whose toggle is off comes back EMPTY — the caller renders nothing for
+    /// it and, because the pins are drawn from these same rows, its positions leave the map too.
+    struct Grouped: Equatable {
+        var named: [MapPaneRow] = []
+        var common: [MapPaneRow] = []
+        var all: [MapPaneRow] { named + common }
+    }
+
+    static func grouped(_ rows: [MapPaneRow], showNamed: Bool, showCommon: Bool) -> Grouped {
+        func alpha(_ a: MapPaneRow, _ b: MapPaneRow) -> Bool {
+            let na = a.name.lowercased(), nb = b.name.lowercased()
+            return na != nb ? na < nb : a.id < b.id
+        }
+        var g = Grouped()
+        for row in rows where row.kind == .mob {
+            if row.named {
+                if showNamed { g.named.append(row) }
+            } else if showCommon {
+                g.common.append(row)
+            }
+        }
+        g.named.sort(by: alpha)
+        g.common.sort(by: alpha)
+        return g
     }
 
     struct PlacedPin: Identifiable {

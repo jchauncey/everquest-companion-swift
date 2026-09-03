@@ -35,8 +35,15 @@ struct MapsView: View {
     @State private var selectedAt: MapXY?
     /// The mob card popover a pin click (or a cross-tab jump) opens, and where it points.
     @State private var cardMob: String?
+    /// The zones a multi-zone gear→map jump offered; non-empty drives the "which zone?" dialog.
+    @State private var jumpZoneChoices: [ZoneShort] = []
     @State private var cardAnchor: CGRect = .zero
     @State private var allMobs: [MapPaneRow] = []
+    /// The pane's two mob groups, each with its own switch. Off means off EVERYWHERE the group
+    /// appears: its list section and its pins on the map — "just trash" and "just nameds" are
+    /// both one click.
+    @AppStorage("eq.maps.showNamed") private var showNamed = true
+    @AppStorage("eq.maps.showCommon") private var showCommon = true
 
     @State private var locs = LocMarkers.load()
     @State private var locText = ""
@@ -87,7 +94,11 @@ struct MapsView: View {
 
     private var locMarker: EqLoc? { locs[sel.zone] }
 
-    private var mobs: [MapPaneRow] { MapPaneRows.filter(allMobs, query: query) }
+    private var grouped: MapPaneRows.Grouped {
+        MapPaneRows.grouped(MapPaneRows.filter(allMobs, query: query),
+                            showNamed: showNamed, showCommon: showCommon)
+    }
+    private var mobs: [MapPaneRow] { grouped.all }
     private var labelRows: [MapPaneRow] { MapPaneRows.filter(MapPaneRows.labelRows(data?.points ?? []), query: query) }
     private var counts: MapPaneRows.Counts {
         MapPaneRows.counts(mobs: allMobs, labels: MapPaneRows.labelRows(data?.points ?? []))
@@ -137,6 +148,27 @@ struct MapsView: View {
         .onDisappear {
             if let m = scrollMonitor { NSEvent.removeMonitor(m); scrollMonitor = nil }
         }
+        .confirmationDialog("Which zone?", isPresented: Binding(
+            get: { !jumpZoneChoices.isEmpty },
+            set: { if !$0 { jumpZoneChoices = []; MapJump.shared.clear() } }
+        ), titleVisibility: .visible) {
+            ForEach(jumpZoneChoices, id: \.self) { z in
+                Button(zoneDisplayName(z)) {
+                    jumpZoneChoices = []
+                    MapJump.shared.resolveChoice(z)
+                    pick(z)
+                    consumeJump()
+                }
+            }
+            Button("Cancel", role: .cancel) { jumpZoneChoices = []; MapJump.shared.clear() }
+        } message: {
+            Text("\(MapJump.shared.pending?.mob ?? "This mob") appears in more than one zone.")
+        }
+    }
+
+    /// A zone's display name for the choice dialog, its short as the honest fallback.
+    private func zoneDisplayName(_ short: ZoneShort) -> String {
+        GameData.shared.zones.first { $0.short == short }?.name ?? short
     }
 
     // MARK: - Header
@@ -234,7 +266,7 @@ struct MapsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                     Toggle("Include common spawns (\u{201C}a froglok sentry\u{201D} and kin)", isOn: $annotateCommon)
                         .toggleStyle(.checkbox).font(.caption).foregroundStyle(Theme.textDim)
-                    Text(annotateCommon ? "Every mob position the wiki states." : "Named and rare mobs only - the capitalized names.")
+                    Text(annotateCommon ? "Every mob position the wiki states." : "Named and rare mobs only - the same group the pane's Named section shows.")
                         .font(.caption).foregroundStyle(Theme.textFaint)
                     Toggle("Keep the zone exits", isOn: $annotateZoneLines)
                         .toggleStyle(.checkbox).font(.caption).foregroundStyle(Theme.textDim)
@@ -458,17 +490,40 @@ struct MapsView: View {
             }
             HStack(spacing: 6) {
                 Chip(text: "\(counts.located)/\(counts.mobs) placed")
-                    .help("\(counts.located) of \(counts.mobs) named mobs here state a position")
+                    .help("\(counts.located) of \(counts.mobs) mobs here state a position")
                 Chip(text: "\(counts.labels) labels")
                 if placed.capped { Chip(text: "first \(MapPaneRows.maxPins) pinned", color: Theme.orange) }
                 Spacer(minLength: 0)
+                // The group switches. Off removes the group's rows AND its pins from the map.
+                Button { showNamed.toggle() } label: {
+                    Chip(text: "Named", color: showNamed ? Theme.gold : Theme.textFaint, filled: showNamed)
+                }
+                .buttonStyle(.plain)
+                .help(showNamed ? "Hide the named and rare mobs - list and map pins both"
+                                : "Show the named and rare mobs")
+                Button { showCommon.toggle() } label: {
+                    Chip(text: "Common", color: showCommon ? Theme.gold : Theme.textFaint, filled: showCommon)
+                }
+                .buttonStyle(.plain)
+                .help(showCommon ? "Hide the common spawns - list and map pins both"
+                                 : "Show the common spawns")
             }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    section(title: "Named mobs", note: "wiki", rows: mobs,
-                            empty: zoneName == nil ? "No zone is open."
-                                : counts.mobs == 0 ? "The mob catalog has no rows for this zone."
-                                : "No mob matches.")
+                    // Two groups by `MobNameConvention.isNamed` — each alphabetical, nameds on
+                    // top. A group switched off disappears entirely rather than sitting empty.
+                    if showNamed {
+                        section(title: "Named & rare", note: "wiki", rows: grouped.named,
+                                empty: zoneName == nil ? "No zone is open."
+                                    : counts.mobs == 0 ? "The mob catalog has no rows for this zone."
+                                    : "No named mob matches.")
+                    }
+                    if showCommon {
+                        section(title: "Common spawns", note: "wiki", rows: grouped.common,
+                                empty: zoneName == nil ? "No zone is open."
+                                    : counts.mobs == 0 ? "The mob catalog has no rows for this zone."
+                                    : "No common spawn matches.")
+                    }
                     section(title: "Map labels", note: "this map", rows: labelRows,
                             empty: data == nil ? "No map is open."
                                 : counts.labels == 0 ? "This map has no label points."
@@ -588,12 +643,21 @@ struct MapsView: View {
     /// rows are in. Consumed exactly once.
     private func consumeJump() {
         guard let j = MapJump.shared.pending else { return }
+        // A jump that named several zones for the mob: ask which one, and do nothing else until the
+        // player answers. The dialog resolves the choice back onto the same request.
+        if j.zone == nil, j.zoneChoices.count > 1 {
+            if jumpZoneChoices != j.zoneChoices { jumpZoneChoices = j.zoneChoices }
+            return
+        }
         if let z = j.zone, z != sel.zone { pick(z); if j.mob.isEmpty { MapJump.shared.clear() }; return }
         if j.mob.isEmpty { MapJump.shared.clear(); return }   // a zone-only jump is done here
         guard !allMobs.isEmpty || MapJump.shared.pending?.zone == nil else { return }
         if let row = allMobs.first(where: { $0.kind == .mob && $0.name.caseInsensitiveCompare(j.mob) == .orderedSame })
             ?? allMobs.first(where: { $0.kind == .mob && $0.name.localizedCaseInsensitiveContains(j.mob) }) {
             query = ""
+            // The jump asked for THIS mob; a group switch left off would center the camera on an
+            // invisible pin, so the mob's own group comes back on.
+            if row.named { showNamed = true } else { showCommon = true }
             select(row)
             if row.target != nil {
                 cardAnchor = CGRect(x: canvasSize.width / 2, y: canvasSize.height / 2, width: 1, height: 1)

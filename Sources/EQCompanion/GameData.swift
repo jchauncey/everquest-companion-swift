@@ -93,6 +93,30 @@ final class GameData {
         return i
     }
 
+    private var rareLootDroppersCache: Set<String>?
+
+    /// The mobs that drop something FEW others drop — one leg of the named-mob verdict
+    /// (`MobNameConvention.isNamed`). An item with at most three recorded droppers is somebody's
+    /// loot rather than a zone-wide table, and each of its droppers is remembered here by the
+    /// lowercased spelling the drop row used.
+    var rareLootDroppers: Set<String> {
+        if let c = rareLootDroppersCache { return c }
+        var out = Set<String>()
+        for (_, v) in items {
+            let mobs = Set((v["dropsFrom"].array ?? []).compactMap {
+                $0["mob"].string?.trimmingCharacters(in: .whitespaces).lowercased()
+            })
+            if mobs.count <= 3 { out.formUnion(mobs) }
+        }
+        out.remove("")
+        rareLootDroppersCache = out
+        return out
+    }
+
+    func dropsRareLoot(_ mobName: String) -> Bool {
+        rareLootDroppers.contains(mobName.trimmingCharacters(in: .whitespaces).lowercased())
+    }
+
     func item(named name: String) -> Item? {
         var key = Self.nameKey(name)
         var v = items[key]

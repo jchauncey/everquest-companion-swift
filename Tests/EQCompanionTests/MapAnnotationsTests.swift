@@ -29,8 +29,19 @@ final class MapAnnotationsTests: XCTestCase {
         XCTAssertFalse(parsed.points.isEmpty)
         XCTAssertTrue(parsed.points.allSatisfy { $0.r == 200 && $0.size == 2 })
         XCTAssertTrue(parsed.points.allSatisfy { !$0.display.contains("_") })
-        // The default filter keeps the named (capitalized) mobs and drops the lowercase fluff.
-        XCTAssertTrue(parsed.points.allSatisfy { $0.display.first?.isUppercase ?? false })
+        // The default filter keeps the nameds and drops the trash — by the full three-signal
+        // verdict, NOT capitalization alone: this wiki spells most camp nameds in lowercase
+        // ("a ghoul sage"), and a pack of only capitalized names missed nearly all of Lower Guk.
+        var displays = Set<String>()
+        for f in files where f.hasSuffix(".txt") {
+            let t = try String(contentsOf: tmp.appendingPathComponent(f), encoding: .utf8)
+            displays.formUnion(MapFile.parse(text: t, layer: 1).points.map(\.display))
+        }
+        XCTAssertTrue(displays.contains { $0.lowercased().contains("ghoul sage") },
+                      "a lowercase camp named must be in the default pack")
+        XCTAssertTrue(displays.contains("Raster of Guk"))
+        XCTAssertFalse(displays.contains { $0.lowercased().contains("dar ghoul knight") },
+                       "level-range trash stays out of the default pack")
         let all = try MapAnnotations.generate(into: tmp, filter: .init(common: true))
         XCTAssertGreaterThan(all.labels, r.labels, "including common spawns must add labels")
     }

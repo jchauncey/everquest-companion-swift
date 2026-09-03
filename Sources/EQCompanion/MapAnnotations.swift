@@ -31,9 +31,10 @@ enum MapAnnotations {
         /// this pack does not cost the player the way out. See `MapZoneLines`.
         var zoneLines = true
 
-        func keeps(_ name: String) -> Bool {
-            let isCommon = name.first.map { $0.isLowercase } ?? true
-            return isCommon ? common : named
+        /// The verdict is the row's own (`MapPaneRow.named` — the full three-signal classifier,
+        /// rare-loot leg included), so the pack writes exactly the mobs the pane's groups show.
+        func keeps(named isNamed: Bool) -> Bool {
+            isNamed ? named : common
         }
     }
 
@@ -80,7 +81,7 @@ enum MapAnnotations {
         var out = Result()
         for z in GameData.shared.zones {
             var lines: [String] = []
-            let mobs = MapPaneRows.mobRows(zoneName: z.name).filter { $0.kind == .mob && filter.keeps($0.name) }
+            let mobs = MapPaneRows.mobRows(zoneName: z.name).filter { $0.kind == .mob && filter.keeps(named: $0.named) }
             let placed = mobs.contains { !$0.pins.isEmpty }
             // The zone's own geometry, read only when there is a pin that needs a height off it.
             // See `MapElevation`: the wiki states an elevation for 2% of positions, and writing
