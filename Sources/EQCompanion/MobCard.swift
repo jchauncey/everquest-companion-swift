@@ -13,6 +13,9 @@ final class MapJump {
 
     struct Pending: Equatable {
         var zone: ZoneShort?
+        /// Every zone this mob could be shown in, when the jump named more than one. The map asks
+        /// which to open; empty or one-element means there was nothing to ask.
+        var zoneChoices: [ZoneShort] = []
         var mob: String
         var seq: Int
     }
@@ -20,21 +23,33 @@ final class MapJump {
     private(set) var pending: Pending?
     private var seq = 0
 
-    /// Jump to `mob`, opening the first of its wiki zones that names a known map zone.
+    /// Jump to `mob`. Its wiki zones are resolved to known map zones (article-tolerant, so
+    /// "Plane of Hate" finds "The Plane of Hate"); a single match opens straight away, several
+    /// leave the map to ask which zone the player wants.
     func show(mob: String, zonesLongNames: [String]) {
-        let zones = GameData.shared.zones
-        let short = zonesLongNames.lazy.compactMap { long in
-            zones.first { $0.name.caseInsensitiveCompare(long) == .orderedSame }?.short
-        }.first
+        var shorts: [ZoneShort] = []
+        for long in zonesLongNames {
+            guard let s = GameData.shared.zone(forLogName: long)?.short, !shorts.contains(s) else { continue }
+            shorts.append(s)
+        }
         seq += 1
-        pending = Pending(zone: short, mob: mob, seq: seq)
+        pending = Pending(zone: shorts.count == 1 ? shorts[0] : nil,
+                          zoneChoices: shorts.count > 1 ? shorts : [],
+                          mob: mob, seq: seq)
         UserDefaults.standard.set(Tab.maps.rawValue, forKey: "eq.tab")
     }
 
-    /// Jump to a zone stated by its LONG name (a knowledge record's "zone" cell).
+    /// The player picked one of a multi-zone jump's choices. Same mob and seq — a resolution of the
+    /// pending request, not a new one.
+    func resolveChoice(_ zone: ZoneShort) {
+        guard let p = pending else { return }
+        pending = Pending(zone: zone, zoneChoices: [], mob: p.mob, seq: p.seq)
+    }
+
+    /// Jump to a zone stated by its LONG name (a knowledge record's "zone" cell). Article-tolerant,
+    /// so a "Plane of Hate" cell opens "The Plane of Hate".
     func showZone(named long: String) {
-        guard let short = GameData.shared.zones.first(where: { $0.name.caseInsensitiveCompare(long) == .orderedSame })?.short
-        else { return }
+        guard let short = GameData.shared.zone(forLogName: long)?.short else { return }
         showZone(short)
     }
 

@@ -36,13 +36,27 @@ final class GameData {
 
     // MARK: - Keys
 
-    static func nameKey(_ s: String) -> String {
+    nonisolated static func nameKey(_ s: String) -> String {
         s.lowercased().split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
     }
 
     /// The zone fold the Electron app uses (`zoneKey`): lower-case letters and digits only.
-    static func zoneKey(_ s: String) -> String {
+    nonisolated static func zoneKey(_ s: String) -> String {
         String(s.lowercased().filter { $0.isLetter || $0.isNumber })
+    }
+
+    /// The zone fold, plus its article-flipped sibling: the zone roster spells a plane
+    /// "The Plane of Hate" while the mob and item corpora say "Plane of Hate", and that one word
+    /// left the plane's mobs off its map and broke the gear→map jump into it. Flipping the leading
+    /// "the" (a whole word, so "Theater of Blood" is untouched) lets the two spellings resolve to
+    /// each other. The original fold is always first, so an exact match still wins.
+    nonisolated static func zoneKeyVariants(_ s: String) -> [String] {
+        let k = zoneKey(s)
+        guard !k.isEmpty else { return [] }
+        if s.lowercased().split(whereSeparator: { $0.isWhitespace }).first == "the" {
+            return [k, String(k.dropFirst(3))]
+        }
+        return [k, "the" + k]
     }
 
     // MARK: - Loading
@@ -231,21 +245,26 @@ final class GameData {
         return z
     }
 
-    /// The zone row for a log spelling, through the same fold as the Electron app.
+    /// The zone row for a log spelling, through the same fold as the Electron app — article
+    /// tolerant, so "Plane of Hate" (the mob/item spelling) finds "The Plane of Hate" (the roster's).
     func zone(forLogName raw: String) -> Zone? {
-        let k = Self.zoneKey(raw)
-        guard !k.isEmpty else { return nil }
-        return zones.first { Self.zoneKey($0.name) == k || $0.aliases.contains { Self.zoneKey($0) == k } }
+        let ks = Set(Self.zoneKeyVariants(raw))
+        guard !ks.isEmpty else { return nil }
+        return zones.first { z in
+            !ks.isDisjoint(with: Self.zoneKeyVariants(z.name))
+                || z.aliases.contains { !ks.isDisjoint(with: Self.zoneKeyVariants($0)) }
+        }
     }
 
     /// The mob-catalog zone spellings a log zone name reaches: its own name, aliases, and the
     /// verified catalog names.
     func catalogZoneKeys(forLogName raw: String) -> [String] {
-        guard let z = zone(forLogName: raw) else { return [Self.zoneKey(raw)] }
-        var keys = [Self.zoneKey(z.name)] + z.aliases.map(Self.zoneKey) + z.mobCatalogNames.map(Self.zoneKey)
-        keys.append(Self.zoneKey(raw))
+        // Every spelling in article-flipped pairs, so a roster name with "The" still reaches mob
+        // rows keyed without it (and the reverse). See `zoneKeyVariants`.
+        guard let z = zone(forLogName: raw) else { return Self.zoneKeyVariants(raw) }
+        let spellings = [z.name] + z.aliases + z.mobCatalogNames + [raw]
         var seen = Set<String>()
-        return keys.filter { seen.insert($0).inserted }
+        return spellings.flatMap(Self.zoneKeyVariants).filter { seen.insert($0).inserted }
     }
 
     func mobs(inLogZone raw: String) -> [Mob] {
