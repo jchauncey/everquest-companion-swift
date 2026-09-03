@@ -59,7 +59,7 @@ struct OverlayMeterView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.white.opacity(0.8))
-            .help("Lock: the overlay becomes click-through. Unlock from the app's Overlay menu (⇧⌘L).")
+            .help("Lock: clicks pass through to the game. To unlock, bring EQ Companion forward and click this again (or press ⇧⌘L).")
             Button { model.overlayVisible = false } label: { Image(systemName: "xmark") }
                 .buttonStyle(.plain)
                 .foregroundStyle(.white.opacity(0.8))

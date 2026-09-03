@@ -117,12 +117,22 @@ final class OverlayPanel {
         return p.frame
     }
 
+    /// Click-through is for the GAME's benefit, so it applies only while the game (or anything
+    /// else) is in front. When EQ Companion itself is the active app, a locked panel takes
+    /// clicks again — otherwise the lock button that locked it could never unlock it, and the
+    /// only way back was a menu shortcut advertised by a tooltip the lock made unhoverable.
+    /// Locked stays NOT draggable either way: clickable-while-active must not mean movable.
+    static func clickThrough(movable: Bool, appActive: Bool) -> Bool {
+        !movable && !appActive
+    }
+
     /// On screen exactly when the owner wants it and auto-hide is not taking it away.
     func apply() {
         if wanted && !OverlayHost.suppressed {
             let p = panel ?? make()
             panel = p
-            p.ignoresMouseEvents = !movable
+            p.ignoresMouseEvents = Self.clickThrough(movable: movable, appActive: NSApp.isActive)
+            p.isMovableByWindowBackground = movable
             p.orderFrontRegardless()
         } else {
             panel?.orderOut(nil)
@@ -155,6 +165,16 @@ final class OverlayHost {
         observing = true
         GamePresence.shared.start()
         watch()
+        // Activation flips the click-through answer (see `OverlayPanel.clickThrough`), and AppKit
+        // does not re-ask — so every panel re-applies on both edges.
+        for name in [NSApplication.didBecomeActiveNotification,
+                     NSApplication.didResignActiveNotification] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated {
+                    for p in OverlayHost.shared.panels { p.apply() }
+                }
+            }
+        }
     }
 
     private func watch() {
