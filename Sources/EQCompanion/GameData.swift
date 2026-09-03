@@ -162,6 +162,54 @@ final class GameData {
              raw: v)
     }
 
+    // MARK: - Exaltations
+
+    /// One item's focus-effect exaltation, from `exaltations.json` (scraped from the wiki's
+    /// Category:Focus Effects). The item window shows this in the Focus Exaltation slot.
+    struct Exaltation: Sendable, Hashable {
+        var effect: String
+        /// The level the tier's bonus decays past, nil when the effect never decays.
+        var decaysAfter: Int?
+        /// Coarse family tags (Mana, DoT, Spell Haste, Buffs, DD, Healing, Lifetap, Pets, Misc).
+        var category: [String]
+        var description: String?
+    }
+
+    private var exaltationsCache: [String: Exaltation]?
+    /// Focus exaltations keyed by the item's `nameKey` fold, so a lookup matches whatever spelling
+    /// the caller has.
+    var exaltations: [String: Exaltation] {
+        if let c = exaltationsCache { return c }
+        var out: [String: Exaltation] = [:]
+        for row in load(roots.data, "exaltations.json")["focus"].array ?? [] {
+            guard let item = row["item"].string, let effect = row["effect"].string else { continue }
+            out[Self.nameKey(item)] = Exaltation(
+                effect: effect,
+                decaysAfter: row["decaysAfter"].int,
+                category: (row["category"].array ?? []).compactMap(\.string),
+                description: row["description"].string)
+        }
+        exaltationsCache = out
+        return out
+    }
+
+    /// This item's focus exaltation, or nil. Matches by name so a log or wiki spelling both resolve.
+    func exaltation(forItem name: String) -> Exaltation? { exaltations[Self.nameKey(name)] }
+
+    /// Every focus effect that appears in the overlay, sorted — the gear page's effect-name filter.
+    private var exaltationEffectsCache: [String]?
+    var exaltationEffects: [String] {
+        if let c = exaltationEffectsCache { return c }
+        let e = Set(exaltations.values.map(\.effect)).sorted()
+        exaltationEffectsCache = e
+        return e
+    }
+
+    /// Every category tag present, sorted.
+    var exaltationCategories: [String] {
+        Set(exaltations.values.flatMap(\.category)).sorted()
+    }
+
     /// Every item, materialized once (11k rows, ~100 ms). For the gear table.
     private var allItemsCache: [Item]?
     var allItems: [Item] {

@@ -312,6 +312,15 @@ struct GearDrop: Sendable, Hashable {
 
 /// One equippable item, described in NUMBERS. ABSENT MEANS THE ITEM STATED NONE — never zero: an
 /// item with no `HASTE:` line is not an item with 0% haste.
+/// One item's focus-exaltation, mirrored onto the gear row for display and filtering. See
+/// `exaltations.json` and `GameData.Exaltation`.
+struct GearExaltation: Sendable, Hashable {
+    var effect: String
+    var decaysAfter: Int?
+    var category: [String]
+    var description: String?
+}
+
 struct GearRow: Sendable, Identifiable, Hashable {
     var key: String
     var name: String
@@ -332,6 +341,8 @@ struct GearRow: Sendable, Identifiable, Hashable {
     /// item name + every effect name and parenthetical, lowercased once
     var searchKey: String
     var era: EraVerdict
+    /// The item's focus-exaltation, from the wiki overlay — nil for items with none.
+    var exaltation: GearExaltation?
     var id: String { key }
 
     /// The same row at `state` — the map the gear table runs on every slider move.
@@ -424,9 +435,11 @@ final class GearIndex {
         let itemsURL = GameData.shared.roots.data.appendingPathComponent("items.json")
         let zonesURL = GameData.shared.roots.generated.appendingPathComponent("zones.json")
         let researchURL = GameData.shared.roots.data.appendingPathComponent("itemsResearch.json")
+        let exaltURL = GameData.shared.roots.data.appendingPathComponent("exaltations.json")
         Task.detached(priority: .userInitiated) {
             let began = Date()
-            let built = GearIndex.build(itemsURL: itemsURL, zonesURL: zonesURL, researchURL: researchURL)
+            let built = GearIndex.build(itemsURL: itemsURL, zonesURL: zonesURL, researchURL: researchURL,
+                                        exaltationsURL: exaltURL)
             let ms = Int(Date().timeIntervalSince(began) * 1000)
             await MainActor.run {
                 self.corpus = built
@@ -437,8 +450,23 @@ final class GearIndex {
     }
 
     /// Pure, off-actor: JSON in, value types out.
-    nonisolated static func build(itemsURL: URL, zonesURL: URL, researchURL: URL) -> GearCorpus {
+    nonisolated static func build(itemsURL: URL, zonesURL: URL, researchURL: URL,
+                                  exaltationsURL: URL? = nil) -> GearCorpus {
         var out = GearCorpus()
+
+        // The focus-exaltation overlay (scraped from the wiki), keyed by the item's name fold so a
+        // row can carry its own exaltation for display and filtering. See `exaltations.json`.
+        var exaltByName: [String: GearExaltation] = [:]
+        if let exaltationsURL, let d = try? Data(contentsOf: exaltationsURL), let doc = try? JSONValue.parse(d) {
+            for row in doc["focus"].array ?? [] {
+                guard let item = row["item"].string, let effect = row["effect"].string else { continue }
+                exaltByName[GameData.nameKey(item)] = GearExaltation(
+                    effect: effect,
+                    decaysAfter: row["decaysAfter"].int,
+                    category: (row["category"].array ?? []).compactMap(\.string),
+                    description: row["description"].string)
+            }
+        }
 
         // Hand-verified corrections to the scrape. A curated `slots` list REPLACES the scraped one
         // rather than merging with it, and an item the wiki marks as a GM/event drop is not a route
@@ -550,7 +578,11 @@ final class GearIndex {
             }
             let tag = v["eraTag"].string
             let verdict = layeredVerdict(zoneEras: drops.map { eraOfZone($0.zone) }, tag: tag)
-            let searchKey = ([name] + effects.map { "\($0.name) \($0.detail ?? "")" })
+            let exalt = exaltByName[GameData.nameKey(name)]
+            // The exaltation's effect name joins the search corpus, so typing "Spell Haste" finds
+            // the items that grant it as an exaltation, not only ones whose stats block names it.
+            let searchKey = ([name] + effects.map { "\($0.name) \($0.detail ?? "")" }
+                             + (exalt.map { [$0.effect] } ?? []))
                 .joined(separator: " ").lowercased()
 
             // A page that occupies no equip slot contributes no gear row — the only exclusion.
@@ -562,7 +594,7 @@ final class GearIndex {
                         statKeys: statKeys, saveKeys: saveKeys, state: ItemUpgradeState(full: 1)),
                     effects: effects, eraTag: tag, drops: drops,
                     quest: v["quest"].bool ?? false, playerCrafted: v["playerCrafted"].bool ?? false,
-                    searchKey: searchKey, era: verdict))
+                    searchKey: searchKey, era: verdict, exaltation: exalt))
             }
 
             // Donors. A summoned item is excluded (V9): it is not farmable, so it cannot be a

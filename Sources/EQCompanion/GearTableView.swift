@@ -31,6 +31,8 @@ struct GearTableView: View {
     @State private var classes: Set<String> = []
     @State private var classesPinned = false
     @State private var zones: Set<String> = []
+    /// Focus-exaltation effect names to keep (empty = every item, exalted or not).
+    @State private var exaltEffects: Set<String> = []
     @State private var eraOnly = true
     @State private var ownedOnly = false
     @State private var tier = 0
@@ -173,6 +175,9 @@ struct GearTableView: View {
                 FilterMultiPicker(title: "Zones", empty: "everywhere",
                                   options: index.corpus.dropZones, selection: $zones,
                                   placeholder: "Find a zone\u{2026}")
+                FilterMultiPicker(title: "Exaltation", empty: "any exaltation",
+                                  options: GameData.shared.exaltationEffects, selection: $exaltEffects,
+                                  placeholder: "Find a focus effect\u{2026}")
             }
             FlowRow(spacing: 8, lineSpacing: 8) {
                 toggleChip("Current era", on: $eraOnly, help: "Hide items from outside \(currentEraLabel)")
@@ -287,6 +292,11 @@ struct GearTableView: View {
             // from nowhere near it.
             out.append(GearFilter(label: "the Zones picker") { row in
                 row.drops.contains { want.contains($0.zone) }
+            })
+        }
+        if !exaltEffects.isEmpty {
+            out.append(GearFilter(label: "the Exaltation picker") { row in
+                row.exaltation.map { exaltEffects.contains($0.effect) } ?? false
             })
         }
         if eraOnly {

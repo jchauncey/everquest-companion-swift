@@ -71,6 +71,7 @@ struct ItemCardView: View {
             if let onClose { Button("Close") { onClose() }.buttonStyle(OutlineButtonStyle()) }
         }
         if let r = row { sliderSection(r) }
+        if let ex = GameData.shared.exaltation(forItem: name) { exaltationSection(ex) }
         KnowledgeCard(domain: "item", name: name)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .environment(\.openSpell) { spell = $0 }
@@ -106,6 +107,32 @@ struct ItemCardView: View {
         Text(state.percentLabel).font(.caption)
             .foregroundStyle(tier == 0 && fraction == 0 ? Theme.textFaint : Theme.gold)
         chips(r)
+    }
+
+    /// The item's Focus Exaltation, as the item window shows it: the effect it can donate, the
+    /// level its bonus decays past, and the family tags. Clicking the effect opens its own card.
+    @ViewBuilder private func exaltationSection(_ ex: GameData.Exaltation) -> some View {
+        Card("FOCUS EXALTATION") {
+            VStack(alignment: .leading, spacing: 6) {
+                Button { spell = ex.effect } label: {
+                    Text(ex.effect).font(.callout.weight(.semibold)).foregroundStyle(Theme.gold)
+                        .underline().lineLimit(1)
+                }
+                .buttonStyle(.plain)
+                FlowLayout(spacing: 6) {
+                    ForEach(ex.category, id: \.self) { Chip(text: $0) }
+                    if let d = ex.decaysAfter {
+                        Chip(text: "decays after \(d)", color: Theme.orange)
+                    } else {
+                        Chip(text: "no decay", color: Theme.textDim)
+                    }
+                }
+                if let desc = ex.description, !desc.isEmpty {
+                    Text(desc).font(.caption).foregroundStyle(Theme.textDim)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
     }
 
     /// Every number the item window would show at this state: the weapon trio and its derived
