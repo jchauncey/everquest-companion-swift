@@ -1,17 +1,16 @@
 # What's left — pick-up list
 
-State at this commit: the whole engine and app are Swift (no Rust at build or run time), verified
-against the Rust engine's goldens (parser byte-identical on 138 fixtures + the real log; all 20
-fold modules and the combat engine deep-equal; 5,806 op answers identical); 733 tests green;
-`scripts/build-app.sh` produces a self-contained `dist/EQCompanion.app`; Preferences has all
-fifteen pages. Nobody has yet SEEN the UI rendered — every verification so far is by log, test
-and oracle diff. Items are in rough priority order.
+State: the whole engine and app are Swift (no Rust at build or run time), verified against the Rust
+engine's goldens (parser byte-identical on 138 fixtures + a real log; all 20 fold modules and the
+combat engine deep-equal; 5,806 op answers identical); `make app` produces a self-contained
+`dist/EQCompanion.app`; Preferences has all fifteen pages. Items are in rough priority order.
 
-## 1. Visual QA pass (first thing, needs a human at the screen)
-- Open every tab against the 20 screenshots (`~/Desktop/*.jpg`) and every Preferences page
-  against `~/Desktop/preferences-*.jpg`; fix layout nits. Expect spacing/size issues, not data.
-- Overlays: the meter, toasts, banner and con card are `NSPanel`s that have never been looked at.
-  Check auto-hide (default ON — the meter only shows while `eqgame` runs), "Move it", opacity.
+## 1. Visual QA pass
+The tabs and overlays have been used against a live game and their worst layout bugs fixed (gear
+and loot tables, map pane, dropdown pickers, the overlay lock). What has NOT happened is a
+systematic pass: open every tab and every Preferences page in turn and fix what looks wrong.
+- Overlays: meter, toasts, banner and con card are `NSPanel`s. Check auto-hide (default ON — the
+  meter only shows while the game runs), "Move it", opacity.
 - Cursor ring over the CrossOver window; the menu-bar item; the HUD text in the title bar.
 
 ## 2. Fold performance
@@ -37,8 +36,8 @@ and oracle diff. Items are in rough priority order.
 - Banner/con-card duration lists are narrower than upstream's (2/4/6/8/10 vs 2/3/4/6/8/10/15;
   con card 2/3/5/8/12 vs 3…60 + "until I close it").
 - Voice: only macOS voices; upstream's Kokoro natural-voice engine has no macOS implementation.
-- Updates: no release feed. When there is a GitHub repo, add "check for updates" against its
-  releases API (no auto-install; reveal the download).
+- Updates: no release feed. The repo is now public — add "check for updates" against its releases
+  API (no auto-install; reveal the download).
 - `Prefs.overlayIndependent` per-overlay values exist for ids meter/toast/banner/conCard only.
 
 ## 4. Upstream features not carried (see README "Not (yet) here")

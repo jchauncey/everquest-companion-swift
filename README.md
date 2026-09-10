@@ -1,36 +1,76 @@
 # EQ Companion for macOS
 
-A native, self-contained macOS companion for **EverQuest Legends**: it reads the log file the game
-already writes and turns it into live views — a DPS meter and floating overlay, loot, buffs and
-timers, leveling, the Plane of Sky tracker, maps, raid targets, alerts with voice packs.
+A native macOS companion for **EverQuest Legends**. It reads the log file the game already writes
+and turns it into live views: a DPS meter and floating overlay, loot and gear planning, maps, buffs
+and timers, leveling, raid targets, the Plane of Sky tracker, and alerts with voice packs.
 
-**It only reads your log.** Nothing is injected, no game file is touched, nothing is automated.
-Everything runs inside one app process: no child process, no socket, no Rust, no Electron.
+**It only reads your log.** Nothing is injected, no game file is modified, nothing is automated.
+One app process — no child process, no socket, no Electron.
 
-This is a complete Swift port of the [everquest-companion](https://github.com/jmoyers/everquest-companion)
-engine and app. The port is verified against that engine's own output: the parser is **byte-identical**
-on every fixture and on a 442k-event real log, every fold module and the combat engine are
-**deep-equal**, and every op and view the app reads answers **the same**.
+<!-- Screenshots: drop images in docs/images/ and link them here. -->
 
-## Build and run
+## Requirements
 
-Requirements: Xcode 16+ / Swift 6 toolchain, macOS 14+.
+- macOS 14+
+- Xcode 16+ / Swift 6 toolchain (`swift --version`)
+- EverQuest Legends running under CrossOver, Whisky, or Wine
+
+## Install
 
 ```sh
-scripts/build-app.sh          # release build → dist/EQCompanion.app (ad-hoc signed, ~38 MB)
-open dist/EQCompanion.app
-
-swift run                     # development
-swift test                    # ~680 tests, incl. the golden oracles (needs Goldens/, see below)
+git clone https://github.com/jchauncey/everquest-companion-swift.git
+cd everquest-companion-swift
+make install          # builds a release app and copies it to /Applications
 ```
 
-## Where the game is
+Or build without installing:
 
-The app looks for an EverQuest Legends install with `Logs/eqlog_<Character>_<server>.txt`, in
-order: `EQ_INSTALL_DIR`, every CrossOver bottle, Whisky bottles, `~/.wine`, and a couple of plain
-folders. **Preferences** (⌘,) takes a manual path (the install root, its `Logs` folder, or one log
-file). In EverQuest, type `/log on`. Characters appear in the toolbar picker; switching re-attaches
-the engine (a fresh epoch) and every panel re-hydrates.
+```sh
+make app              # → dist/EQCompanion.app
+open dist/EQCompanion.app
+```
+
+The app is ad-hoc signed as it is built, so Gatekeeper allows the copy you built on your own
+machine. `make run` builds and launches from source for development.
+
+## Point it at EverQuest
+
+In game, type `/log on` — the app has nothing to read until you do.
+
+On launch it looks for an install with `Logs/eqlog_<Character>_<server>.txt`, checking
+`EQ_INSTALL_DIR`, every CrossOver bottle, Whisky bottles, `~/.wine`, and a few plain folders. If it
+finds nothing it asks. **Preferences (⌘,) → Game** takes a manual path: the install root, its
+`Logs` folder, or a single log file.
+
+Characters appear in the toolbar picker. Switching re-attaches the engine and re-hydrates every
+panel. The first attach parses the whole log (about 2 s for a 40 MB log after the first run, which
+saves a checkpoint); later launches resume from that checkpoint.
+
+If a panel is empty, read `~/Library/Application Support/EQCompanion/client.log` first — the app
+and engine both write their diagnostics there. `make log` tails it.
+
+## Make targets
+
+`make help` lists them all. The ones that matter:
+
+| Target | What |
+| --- | --- |
+| `make install` | Release build → `/Applications/EQCompanion.app` |
+| `make app` | Release build → `dist/EQCompanion.app` |
+| `make run` | Build and run from source |
+| `make build` / `make release` | Debug / release build of every target |
+| `make test` | The whole suite |
+| `make test-app` | Just the SwiftUI app tests (fast, no goldens needed) |
+| `make test-engine` | Just the engine suites (the golden oracles) |
+| `make test-one FILTER=…` | One test, class, or suite |
+| `make verify` | What CI runs: build, then the full suite |
+| `make log` | Tail the client log |
+| `make clean` | Remove build products |
+
+Developer tools live in the nested `Tools/` package so a bare `swift run` still means the app:
+`make tools`, then `make events`, `make snapshots`, `make combat`, `make views`, `make bench` —
+each takes `ARGS="…"` (e.g. `make events ARGS="--all --kinds loot"`). `make goldens` re-cuts the
+golden corpus; `make exaltations` re-scrapes the item exaltation data from the wiki.
 
 ## Architecture
 
@@ -38,115 +78,58 @@ the engine (a fresh epoch) and every panel re-hydrates.
 EverQuest (CrossOver bottle) ──appends──► eqlog_<Char>_<server>.txt
                                                 │
   EQCompanion (one process)                     ▼
-    EQLog        the parser: bytes → canonical events (byte-identical to the Rust eqlog crate)
-    EQFold       twenty world-model modules + the combat engine (deep-equal to the Rust fold crate)
+    EQLog        the parser: bytes → canonical events
+    EQFold       twenty world-model modules + the combat engine
     EQKnowledge  the committed item / mob / quest corpora and name search
-    EQEngine     the World: one fold thread per attach (scan, then live tail, then 1 Hz tick),
-                 the view registry (filter/sort/window + reset-then-diffs), the ops table,
-                 persisted state, and LocalEngine — the in-process link
+    EQEngine     the World: one fold thread per attach (scan, live tail, 1 Hz tick), the view
+                 registry, the ops table, persisted state, and the in-process link
     EQCompanionCore  EngineClient: subscriptions, the epoch law, request correlation
-    EQCompanion  the SwiftUI app — Overview · Combat · Mobs · Loot · Gear · Maps · Raid Targets ·
-                 Plane of Sky · Alerts · Leveling · Buffs · Timers (+ Events · Knowledge · Spells ·
-                 Engine) and the floating DPS overlay
+    EQCompanion  the SwiftUI app and the floating overlays
     EQData       the committed game knowledge (JSON) and wiki images, as a resource bundle
 ```
 
-The wire contract between app and engine is the upstream protocol (`protocol/schema/*.json`),
-kept verbatim so the views never learned that the socket went away: a view is a `view.subscribe`,
-a meter is a `combat.snapshot`, a card is a `knowledge.*` request — all in-process now.
+State lives in `~/Library/Application Support/EQCompanion/`: `engine-state/` (the engine's
+persisted knowledge), `alerts.json`, `soundpacks/`, and `client.log`.
 
-## Verification — the goldens
+## Verification
 
-`Goldens/` (git-ignored, ~230 MB, regenerated by `scripts/gen-goldens.sh` from a checkout of the
-upstream repo) holds what the **Rust engine** produced for the 138 committed log fixtures in
-`Resources/fixtures/` and for the owner's real log:
+This is a complete Swift port of the [everquest-companion](https://github.com/jmoyers/everquest-companion)
+engine, and it is verified against that engine's own recorded output rather than by eye: the parser
+is **byte-identical** on all 138 committed fixtures and on a 442k-event real log, every fold module
+and the combat engine are **deep-equal**, and all 5,806 recorded op answers match.
 
-| golden | produced by | Swift bar | checked by |
-| --- | --- | --- | --- |
-| `events.ndjson` | `parity <log>` | byte identity, every line | `eqtool events --all`, `EQLogTests` |
-| `snapshots.json` | `parity --snapshots` | deep equality, every module + combat + scopes | `eqtool snapshots/combat --all`, `EQFoldTests` |
-| `views.json`, `ops.json` | the engine over its socket | deep equality (time-independent sources and every op) | `eqtool views --all`, `EQEngineTests` |
+Those oracles read `Goldens/` — about 230 MB, git-ignored, cut from a checkout of the upstream Rust
+engine by `make goldens`. **The golden suites skip when it is absent**, so `make test` is green on a
+bare checkout while proving much less; `make goldens-status` says which situation you are in, and CI
+prints its skip count for the same reason. Only `make verify` with `Goldens/` present proves parity.
 
-Status at this writing: parser 93,412/93,412 fixture lines and 442,379/442,379 real-log lines
-identical; all 20 modules and the combat engine 138/138 and real-log ok; 5,806 recorded op
-answers identical. The three wall-clock views (`buffs.active`, `timers.rows`, `respawn.watches`)
-are checked structurally — the Rust recorded them against its own clock.
+## Attribution
 
-`eqtool` is the developer's oracle diff: `swift run --package-path Tools eqtool events e2e-combat --kinds damage`,
-`eqtool snapshots _real --modules buffs`, `eqtool combat --all`, `eqtool views --all`.
-
-## Preferences (⌘,)
-
-The upstream Preferences pages, as native pages with a search box: **Game** (the install folder:
-choose a folder, a log file, or auto-detect), **Appearance** (in-app text size; overlay text size
-and transparency, shared or per overlay), **Combat** (whose damage the meters show — you / group /
-everyone; your pet inside your damage), **Overlays** (auto-hide when EverQuest isn't running or
-isn't frontmost; celebration toasts for raid-target kills and Plane of Sky quests; the alert
-banner; the mob card on con; solid backgrounds), **Window** (keep running in the menu bar when the
-window closes), **Buffs** (other casters whose buffs the bars show), **Cursor ring** (a ring
-around the pointer while the game is frontmost), **Voice** (macOS voices, speed, volume),
-**Profiles** (export/import a share string — the upstream `EQC1-…` format, so a string from the
-Windows app pastes in; your class loadout with corrections), **Updates**, **What's new**,
-**Usage analytics** (there are none: this build sends nothing), **Performance** (yield CPU to the
-game — the fold thread's QoS; a CPU/memory reading in the title bar; the startup timeline and the
-engine's own budgets), **Feedback** (a redacted report you save and send yourself), **Thanks**.
-
-Not carried over: the Wine-only Graphics page, the auto-updater, telemetry, and the resist
-evidence switch (nothing in this app shows a resist estimate yet).
-
-## What lives where on disk
-
-| Path | What |
-| --- | --- |
-| `~/Library/Application Support/EQCompanion/engine-state/` | the engine's persisted knowledge (`resist-ledger.json`, `message-overlay.json`), written on a cadence and at quit |
-| `~/Library/Application Support/EQCompanion/alerts.json` | your alert definitions (the upstream `AlertDef` shape, so a def pastes across) |
-| `~/Library/Application Support/EQCompanion/soundpacks/` | installed voice packs (`<pack>/manifest.json` + audio) |
-| `~/Library/Application Support/EQCompanion/client.log` | the client's notes and the engine's diagnostics — the first thing to read when a panel is empty |
-
-## Performance
-
-Release build, on a 35.5 MB / 442k-event log: parser ≈ 2.8 s (12.9 MB/s), whole fold ≈ 12 s;
-the upstream Rust engine does the same fold in ≈ 2.2 s. The catch-up is a one-time cost per
-launch or character switch, shown as a progress bar; the live tail is a 400 ms poll.
-
-## Not (yet) here
-
-Telemetry and feedback upload, auto-update, the wiki fetch on a `knowledgeMiss`, `/outputfile
-achievements` inference, chart drag/hover interactions, `app:` alert triggers (bossDefeat /
-questComplete never fire — the engine maps them to never, as upstream does), the `rebaseline`
-inventory count source, and the Kokoro natural-voice engine. Per-surface omissions are noted in each Swift file's header.
-
-## Attribution and thanks
-
-**This app is a port.** The engine, the data, the fixtures, the alert seeds and every panel's
-logic are a Swift translation of [everquest-companion](https://github.com/jmoyers/everquest-companion)
-by **Josh Moyers** (Electron + Rust), ported from upstream commit `fd5e5bb8` (release 1.14.0,
-August 2026). The design, the rules the code states, and most of the sentences in the comments
-are his; the port keeps them because they are what the goldens verify. Nothing here is affiliated
-with or endorsed by upstream.
+**This app is a port.** The engine, the data, the fixtures, the alert seeds and every panel's logic
+are a Swift translation of [everquest-companion](https://github.com/jmoyers/everquest-companion) by
+**Josh Moyers** (Electron + Rust), from upstream commit `fd5e5bb8` (release 1.14.0, August 2026).
+The design, the rules the code states, and most of the sentences in the comments are his. Nothing
+here is affiliated with or endorsed by upstream.
 
 **The pictures are not ours.** Item icons and raid-boss portraits come from two volunteer-run
 EverQuest wikis and are copied into the app at build time, so drawing them never asks either site
-for anything: [wiki.project1999.com](https://wiki.project1999.com/) (the raid-boss portraits on
-the Raid targets cards) and [eqlwiki.com](https://eqlwiki.com/) (the item icons throughout loot,
-gear and the planner, and the item, spell and quest knowledge behind them).
-`Sources/EQData/wiki-images/manifest.json` records the source URL, byte length and SHA-256 of
-every file shipped. Neither wiki is affiliated with this app. The same credit is in the app under
-**Preferences → Thanks**.
+for anything: [wiki.project1999.com](https://wiki.project1999.com/) (raid-boss portraits) and
+[eqlwiki.com](https://eqlwiki.com/) (item icons, and the item, spell and quest knowledge behind
+them). `Sources/EQData/wiki-images/manifest.json` records the source URL, byte length and SHA-256 of
+every file shipped. Neither wiki is affiliated with this app.
 
 **Voice packs.** The default alert voice, installed on demand from the
 [openpeon](https://github.com/utensils) registry, is
 [utensils/openpeon-alan-rickman-soundpack](https://github.com/utensils/openpeon-alan-rickman-soundpack),
-licensed CC-BY-4.0. Packs you install from the in-app browser carry their own licenses and
-attribution in each pack's manifest; none are part of this repository.
+licensed CC-BY-4.0. Packs you install carry their own licenses and attribution in each pack's
+manifest; none are part of this repository.
 
 EverQuest is a trademark of Daybreak Game Company LLC. This is a fan-made log reader; it is not
 affiliated with Daybreak, and it reads only the log file the game writes for you.
 
 ## License
 
-FSL-1.1-MIT (Functional Source License, converting to MIT two years after each version's
-release) — see [`LICENSE`](LICENSE). Copyright (c) 2026 Josh Moyers; the Swift port is a
-derivative work carried under the same terms. Permitted purposes include personal use,
-non-commercial redistribution and modification; a competing commercial product is not permitted
-until the change date.
+FSL-1.1-MIT (Functional Source License, converting to MIT two years after each version's release) —
+see [`LICENSE`](LICENSE). Copyright (c) 2026 Josh Moyers; the Swift port is a derivative work
+carried under the same terms. Personal use, non-commercial redistribution and modification are
+permitted; a competing commercial product is not, until the change date.

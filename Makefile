@@ -34,6 +34,12 @@ app: ## Package dist/EQCompanion.app (release, ad-hoc signed)
 app-debug: ## Package dist/EQCompanion.app from a debug build
 	scripts/build-app.sh --debug
 
+.PHONY: install
+install: app ## Build, then copy the app into /Applications
+	rm -rf "/Applications/EQCompanion.app"
+	cp -R dist/EQCompanion.app "/Applications/EQCompanion.app"
+	@echo "installed: /Applications/EQCompanion.app"
+
 .PHONY: tools
 tools: ## Build the developer tools in Tools/ (eqtool, eqbench)
 	$(SWIFT) build --package-path Tools
@@ -71,6 +77,10 @@ verify: ## What CI runs: build, then the full suite
 .PHONY: goldens
 goldens: ## Re-cut Goldens/ from the upstream RUST engine (needs cargo + $UPSTREAM)
 	scripts/gen-goldens.sh $(UPSTREAM)
+
+.PHONY: exaltations
+exaltations: ## Re-scrape Sources/EQData/data/exaltations.json from the wiki
+	python3 scripts/gen-exaltations.py
 
 .PHONY: goldens-status
 goldens-status: ## Whether Goldens/ is present — the golden suites skip silently without it
