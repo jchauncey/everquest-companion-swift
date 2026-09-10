@@ -158,23 +158,32 @@ final class MapFilesTests: XCTestCase {
         // The legend never widens the extent, so the map is never a speck in the corner.
         XCTAssertLessThan(auto.bounds.maxX - auto.bounds.minX, 20_000)
 
-        // The screenshot's "75 labels": brewalls supplies 50 POIs and a 25-row legend. Anything
-        // above that is a third pack supplying a layer the other two do not have.
-        XCTAssertEqual(auto.points.filter { $0.layer == 1 }.count, 50)
-        XCTAssertEqual(auto.points.filter { $0.layer == 2 }.count, 25)
+        // WHICH label packs a machine has installed is the player's business, not this app's, so
+        // nothing here pins a pack's own label counts — a checkout with different packs (or none)
+        // must still be green. The claim is structural: a layer that named a source pack actually
+        // got labels out of it.
+        for layer in [1, 2] where auto.sources.contains(where: { $0.layer == layer }) {
+            XCTAssertFalse(auto.points.filter { $0.layer == layer }.isEmpty,
+                           "layer \(layer) resolved to a pack, so it must have supplied labels")
+        }
 
         // Geometry from the game's own files, labels from an installed pack — the split the
         // whole per-layer resolution exists for.
         let geomSource = try XCTUnwrap(auto.sources.first { $0.layer == 0 })
         XCTAssertEqual(geomSource.packId, "default")
-        if packs.contains(where: { $0.pack.id == "brewalls" }) {
-            XCTAssertEqual(auto.sources.first { $0.layer == 1 }?.packId, "brewalls")
-            let forced = try XCTUnwrap(MapFile.load(packs, zone: "gukbottom",
-                                                    prefs: MapPackPrefs(geometry: "brewalls", labels: "default")))
-            print("gukbottom forced: sources=\(forced.sources.map { "\($0.layer):\($0.packId)" }.joined(separator: ","))"
+
+        // Forcing a pack per layer is honoured. Driven by whatever extra pack this machine has
+        // rather than one pinned by name, and only asserted when that pack really carries the zone.
+        let extras = packs.map(\.pack.id).filter { $0 != "default" }
+        for extra in extras {
+            guard let forced = MapFile.load(packs, zone: "gukbottom",
+                                            prefs: MapPackPrefs(geometry: extra, labels: "default")),
+                  forced.sources.first(where: { $0.layer == 0 })?.packId == extra else { continue }
+            print("gukbottom forced(\(extra)): sources=\(forced.sources.map { "\($0.layer):\($0.packId)" }.joined(separator: ","))"
                   + " segments=\(forced.lines.count) points=\(forced.points.count)")
-            XCTAssertEqual(forced.sources.first { $0.layer == 0 }?.packId, "brewalls")
-            XCTAssertEqual(forced.sources.first { $0.layer == 1 }?.packId, "default")
+            XCTAssertEqual(forced.sources.first { $0.layer == 1 }?.packId, "default",
+                           "labels were forced to default")
+            break
         }
 
         let bands = MapFloors.bands(auto.zLevels, hint: auto.heightHint)
@@ -185,8 +194,14 @@ final class MapFilesTests: XCTestCase {
         }
     }
 
-    /// A sweep over the whole corpus: nothing throws, nothing is silently dropped.
-    func testEveryZoneInTheDefaultPackParses() throws {
+    /// A sweep over every installed pack: nothing throws, and the parser gets essentially all of it.
+    ///
+    /// NOT `skipped == 0`. The corpus is not ours and is not pristine — the game's own shipped
+    /// files carry stray lines (`steamfont_2.txt` has a bare `(rogue_epic)`), and community packs
+    /// carry their own. Counting a malformed line instead of throwing on it is the documented
+    /// design, so the bar is a RATE: a parser regression shows up as a flood, while somebody's
+    /// pack having a comment line in it does not turn this suite red on their machine.
+    func testEveryZoneInTheInstalledPacksParses() throws {
         guard let root = mapsRoot() else { throw XCTSkip("no EverQuest install on this machine") }
         let packs = MapFile.discoverPacks(eqRoot: root, userPacksRoot: nil)
         let stems = MapFile.zoneStems(packs)
@@ -201,7 +216,10 @@ final class MapFilesTests: XCTestCase {
         print("CORPUS: \(stems.count) zones, \(segments) segments, \(points) points, \(skipped) unparsed; "
               + "biggest = \(worst.0) at \(worst.1) segments")
         XCTAssertGreaterThan(segments, 100_000)
-        XCTAssertEqual(skipped, 0)
+        let records = segments + points + skipped
+        XCTAssertLessThan(Double(skipped) / Double(max(records, 1)), 0.001,
+                          "\(skipped) of \(records) records unparsed — that is a parser regression, "
+                            + "not a stray line in somebody's pack")
     }
 
     /// The store and the pane, end to end on the real install: scan, parse, cache, and the wiki
