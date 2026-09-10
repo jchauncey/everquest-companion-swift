@@ -10,6 +10,14 @@ SWIFT ?= swift
 # The upstream Rust checkout the goldens are cut from.
 UPSTREAM ?= ../everquest-companion
 
+# Release coordinates. VERSION is the file the app and the bundle both read, so the tag, the zip
+# and what the About box says can never disagree. REMOTE is this repo's git remote (named
+# `upstream` here, not `origin`).
+VERSION := $(shell cat VERSION 2>/dev/null)
+TAG := v$(VERSION)
+ZIP := dist/EQCompanion-$(VERSION).zip
+REMOTE ?= upstream
+
 .DEFAULT_GOAL := help
 
 # ---- build ----------------------------------------------------------------
@@ -18,8 +26,8 @@ UPSTREAM ?= ../everquest-companion
 build: ## Debug build of every target
 	$(SWIFT) build
 
-.PHONY: release
-release: ## Release build of every target
+.PHONY: build-release
+build-release: ## Release build of every target (see `release` for publishing one)
 	$(SWIFT) build -c release
 
 .PHONY: run
@@ -114,6 +122,64 @@ views: ## eqtool views — the view registry's cuts
 .PHONY: bench
 bench: ## eqbench — parser timing and byte diff: make bench ARGS="<log>"
 	$(SWIFT) run --package-path Tools eqbench $(ARGS)
+
+# ---- release --------------------------------------------------------------
+#
+# The whole flow, once the release's notes are written into
+# `Sources/EQCompanion/Prefs/ReleaseNotes.swift` (a human job — the voice rules are in that file):
+#
+#     make tag V=0.3.0                        bump VERSION, commit it, annotated tag v0.3.0
+#     git push $(REMOTE) main --follow-tags   the tag has to be on GitHub before the release
+#     make release                            build, zip, publish, attach
+#
+# The release body comes from those same committed notes, so what the app shows under
+# Preferences → What's new and what GitHub shows cannot drift apart.
+#
+# GATEKEEPER, honestly: the bundle is ad-hoc signed, not notarized, so a DOWNLOADED copy is
+# quarantined and macOS calls it damaged. `scripts/release-install-note.md` — appended to every
+# release body — says how to clear it. Developer ID signing plus notarization is the real fix and
+# is not done here; see docs/plan.md.
+
+.PHONY: version
+version: ## Print the version that would be released
+	@echo "$(VERSION)  (tag $(TAG))"
+
+.PHONY: notes
+notes: ## Print the release notes for the current VERSION
+	@python3 scripts/release-notes.py "$(VERSION)"
+
+.PHONY: tag
+tag: ## Set the version, commit it, and tag it: make tag V=0.3.0
+	@test -n "$(V)" || { echo "usage: make tag V=0.3.0"; exit 1; }
+	@echo "$(V)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$$' || { echo "version must look like 1.2.3"; exit 1; }
+	@test -z "$$(git status --porcelain)" || { echo "working tree is dirty — commit or stash first"; exit 1; }
+	@if git rev-parse -q --verify "refs/tags/v$(V)" >/dev/null; then echo "tag v$(V) already exists"; exit 1; fi
+	@python3 scripts/release-notes.py "$(V)" >/dev/null
+	@echo "$(V)" > VERSION
+	@git add VERSION
+	@git commit -q -m "Release $(V)"
+	@python3 scripts/release-notes.py "$(V)" | git tag -a "v$(V)" -F -
+	@echo "tagged v$(V)."
+	@echo "next:  git push $(REMOTE) main --follow-tags  &&  make release"
+
+.PHONY: dist-zip
+dist-zip: app ## Build the app and zip it for upload (ditto keeps the signature intact)
+	@rm -f "$(ZIP)"
+	@ditto -c -k --sequesterRsrc --keepParent dist/EQCompanion.app "$(ZIP)"
+	@echo "$(ZIP) ($$(du -h "$(ZIP)" | cut -f1 | tr -d ' '))"
+
+.PHONY: release
+release: ## Publish VERSION as a GitHub release with the app attached
+	@command -v gh >/dev/null || { echo "gh CLI not installed: brew install gh"; exit 1; }
+	@test -n "$(VERSION)" || { echo "VERSION file is empty"; exit 1; }
+	@git rev-parse -q --verify "refs/tags/$(TAG)" >/dev/null || { echo "no tag $(TAG) — run: make tag V=$(VERSION)"; exit 1; }
+	@git ls-remote --tags $(REMOTE) "refs/tags/$(TAG)" | grep -q . \
+		|| { echo "tag $(TAG) is not on $(REMOTE) — run: git push $(REMOTE) main --follow-tags"; exit 1; }
+	@if gh release view "$(TAG)" >/dev/null 2>&1; then echo "release $(TAG) already exists"; exit 1; fi
+	$(MAKE) dist-zip
+	@{ python3 scripts/release-notes.py "$(VERSION)"; cat scripts/release-install-note.md; } > dist/release-body.md
+	gh release create "$(TAG)" "$(ZIP)" --title "EQ Companion $(VERSION)" --notes-file dist/release-body.md
+	@echo "published: $$(gh release view "$(TAG)" --json url -q .url)"
 
 # ---- housekeeping ---------------------------------------------------------
 

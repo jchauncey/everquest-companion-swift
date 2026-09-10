@@ -58,7 +58,7 @@ and engine both write their diagnostics there. `make log` tails it.
 | `make install` | Release build → `/Applications/EQCompanion.app` |
 | `make app` | Release build → `dist/EQCompanion.app` |
 | `make run` | Build and run from source |
-| `make build` / `make release` | Debug / release build of every target |
+| `make build` / `make build-release` | Debug / release build of every target |
 | `make test` | The whole suite |
 | `make test-app` | Just the SwiftUI app tests (fast, no goldens needed) |
 | `make test-engine` | Just the engine suites (the golden oracles) |
@@ -66,6 +66,27 @@ and engine both write their diagnostics there. `make log` tails it.
 | `make verify` | What CI runs: build, then the full suite |
 | `make log` | Tail the client log |
 | `make clean` | Remove build products |
+
+### Cutting a release
+
+Write the release's notes into `Sources/EQCompanion/Prefs/ReleaseNotes.swift` first — the app shows
+them under **Preferences → What's new**, and the GitHub release body is generated from the same
+array, so the two cannot drift apart. Then:
+
+```sh
+make tag V=0.3.0                      # bumps VERSION, commits it, annotated tag v0.3.0
+git push upstream main --follow-tags
+make release                          # builds, zips, publishes, attaches the app
+```
+
+`make tag` refuses a version with no notes, a dirty tree, or a tag that already exists; `make
+release` refuses until that tag is on GitHub. `make notes` prints what the body will say.
+
+Released builds are ad-hoc signed rather than notarized, so macOS quarantines a **downloaded**
+copy and calls it damaged; every release body carries the one-line `xattr` fix. Building from
+source has no such step, because the signature is made on your own machine.
+
+### Developer tools
 
 Developer tools live in the nested `Tools/` package so a bare `swift run` still means the app:
 `make tools`, then `make events`, `make snapshots`, `make combat`, `make views`, `make bench` —
