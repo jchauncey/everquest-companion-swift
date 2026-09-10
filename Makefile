@@ -16,6 +16,11 @@ UPSTREAM ?= ../everquest-companion
 VERSION := $(shell cat VERSION 2>/dev/null)
 TAG := v$(VERSION)
 ZIP := dist/EQCompanion-$(VERSION).zip
+
+# The release-notes tool (scripts/relnotes): reads the app's own committed notes, renders one
+# release as Markdown, and drafts a first pass from the commit log. Built into .build/ rather than
+# `go run` so a refusal reads as its own message and not as "exit status 1" after it.
+RELNOTES := .build/relnotes
 REMOTE ?= upstream
 
 .DEFAULT_GOAL := help
@@ -140,25 +145,37 @@ bench: ## eqbench — parser timing and byte diff: make bench ARGS="<log>"
 # release body — says how to clear it. Developer ID signing plus notarization is the real fix and
 # is not done here; see docs/plan.md.
 
+$(RELNOTES): $(wildcard scripts/relnotes/*.go) scripts/relnotes/go.mod
+	@mkdir -p .build
+	@go build -C scripts/relnotes -o "$(CURDIR)/$(RELNOTES)" .
+
 .PHONY: version
 version: ## Print the version that would be released
 	@echo "$(VERSION)  (tag $(TAG))"
 
 .PHONY: notes
-notes: ## Print the release notes for the current VERSION
-	@python3 scripts/release-notes.py "$(VERSION)"
+notes: $(RELNOTES) ## Print the release notes for the current VERSION
+	@$(RELNOTES) render "$(VERSION)"
+
+# A DRAFT, and only a draft. `tag` below never calls this: the notes ship inside the build, so they
+# cannot depend on a CLI or a network — and the commit log knows what changed while only a person
+# knows which of it a player would care about. Draft, then read and edit, then tag.
+.PHONY: draft-notes
+draft-notes: $(RELNOTES) ## Draft notes for V=0.3.0 from the commits since the last release, with claude -p
+	@test -n "$(V)" || { echo "usage: make draft-notes V=0.3.0  [REDRAFT=1] [NOTE='shorter']"; exit 1; }
+	@$(RELNOTES) draft "$(V)" $(if $(REDRAFT),--redraft) $(if $(NOTE),--note "$(NOTE)")
 
 .PHONY: tag
-tag: ## Set the version, commit it, and tag it: make tag V=0.3.0
+tag: $(RELNOTES) ## Set the version, commit it, and tag it: make tag V=0.3.0
 	@test -n "$(V)" || { echo "usage: make tag V=0.3.0"; exit 1; }
 	@echo "$(V)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$$' || { echo "version must look like 1.2.3"; exit 1; }
 	@test -z "$$(git status --porcelain)" || { echo "working tree is dirty — commit or stash first"; exit 1; }
 	@if git rev-parse -q --verify "refs/tags/v$(V)" >/dev/null; then echo "tag v$(V) already exists"; exit 1; fi
-	@python3 scripts/release-notes.py "$(V)" >/dev/null
+	@$(RELNOTES) render "$(V)" >/dev/null
 	@echo "$(V)" > VERSION
 	@git add VERSION
 	@git commit -q -m "Release $(V)"
-	@python3 scripts/release-notes.py "$(V)" | git tag -a "v$(V)" -F -
+	@$(RELNOTES) render "$(V)" | git tag -a "v$(V)" -F -
 	@echo "tagged v$(V)."
 	@echo "next:  git push $(REMOTE) main --follow-tags  &&  make release"
 
@@ -169,7 +186,7 @@ dist-zip: app ## Build the app and zip it for upload (ditto keeps the signature 
 	@echo "$(ZIP) ($$(du -h "$(ZIP)" | cut -f1 | tr -d ' '))"
 
 .PHONY: release
-release: ## Publish VERSION as a GitHub release with the app attached
+release: $(RELNOTES) ## Publish VERSION as a GitHub release with the app attached
 	@command -v gh >/dev/null || { echo "gh CLI not installed: brew install gh"; exit 1; }
 	@test -n "$(VERSION)" || { echo "VERSION file is empty"; exit 1; }
 	@git rev-parse -q --verify "refs/tags/$(TAG)" >/dev/null || { echo "no tag $(TAG) — run: make tag V=$(VERSION)"; exit 1; }
@@ -177,7 +194,7 @@ release: ## Publish VERSION as a GitHub release with the app attached
 		|| { echo "tag $(TAG) is not on $(REMOTE) — run: git push $(REMOTE) main --follow-tags"; exit 1; }
 	@if gh release view "$(TAG)" >/dev/null 2>&1; then echo "release $(TAG) already exists"; exit 1; fi
 	$(MAKE) dist-zip
-	@{ python3 scripts/release-notes.py "$(VERSION)"; cat scripts/release-install-note.md; } > dist/release-body.md
+	@{ $(RELNOTES) render "$(VERSION)"; cat scripts/release-install-note.md; } > dist/release-body.md
 	gh release create "$(TAG)" "$(ZIP)" --title "EQ Companion $(VERSION)" --notes-file dist/release-body.md
 	@echo "published: $$(gh release view "$(TAG)" --json url -q .url)"
 

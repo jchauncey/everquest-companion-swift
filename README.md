@@ -74,6 +74,7 @@ them under **Preferences → What's new**, and the GitHub release body is genera
 array, so the two cannot drift apart. Then:
 
 ```sh
+make draft-notes V=0.3.0              # optional: a first pass from the commit log, via claude -p
 make tag V=0.3.0                      # bumps VERSION, commits it, annotated tag v0.3.0
 git push upstream main --follow-tags
 make release                          # builds, zips, publishes, attaches the app
@@ -81,6 +82,19 @@ make release                          # builds, zips, publishes, attaches the ap
 
 `make tag` refuses a version with no notes, a dirty tree, or a tag that already exists; `make
 release` refuses until that tag is on GitHub. `make notes` prints what the body will say.
+
+`make draft-notes` writes a draft into that file from the commits since the last release and stops
+there: read it and edit it. Re-roll it with `REDRAFT=1`, steering the next pass if the first one
+missed the point — what it replaces is kept under `.build/`:
+
+```sh
+make draft-notes V=0.3.0 REDRAFT=1 NOTE="shorter, and lead with the overlay"
+```
+
+Nothing in `tag` or `release` calls either one — the notes ship inside the build, so they cannot
+depend on a CLI or a network, and the log knows what changed while only a person knows which of it
+a player would care about. Drafting needs the `claude` CLI; the tool behind all three targets
+(`scripts/relnotes`, Go) needs a Go toolchain, and `make tag` will build it for you.
 
 Released builds are ad-hoc signed rather than notarized, so macOS quarantines a **downloaded**
 copy and calls it damaged; every release body carries the one-line `xattr` fix. Building from

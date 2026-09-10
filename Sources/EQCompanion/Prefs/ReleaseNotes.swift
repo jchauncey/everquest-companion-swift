@@ -53,6 +53,25 @@ enum ReleaseNotes {
 
     /// Every release, NEWEST FIRST — the order the panel renders and every derivation below assumes.
     static let all: [ReleaseNote] = [
+        ReleaseNote(version: "1.0.0", date: "2026-09-10", entries: [
+            ReleaseEntry(.new, "Search lives in the toolbar, on every tab. Type a zone, a mob or an item and go straight to it - a zone or a mob opens the map with the camera on the pin, an item opens its card. Finding something used to mean knowing first which tab knew about it."),
+            ReleaseEntry(.new, "One item card, wherever you meet an item. Gear, a Loot drill-down and a mob's drop list all open the same card - the full weapon numbers, what it gives you, who drops it, and a slider for the +N versions - instead of a different half-answer in each place."),
+            ReleaseEntry(.new, "Map pins open the mob. Click one and its card comes up over the map, its drops clickable through to the item, and it stays put when you alt-tab to the game. A mob's detail gained Show on map, which opens the zone with the camera on the pin."),
+            ReleaseEntry(.new, "Wiki annotations: one button turns every mob position the wiki states into a labels pack in EverQuest's own maps folder, so the game shows them too - accurate labels where a hand-installed pack has gone stale. You name the pack, it never overwrites one it did not write, its labels are red enough to read on parchment, and it marks only named and rare mobs unless you ask for the common spawns."),
+            ReleaseEntry(.new, "Maps split the mob list into Named & rare and Common spawns, each with its own toggle, so the named you are camping is not buried in the trash that shares its ground - including the ones the wiki spells like trash."),
+            ReleaseEntry(.new, "Item cards show Focus Exaltation, and the Gear page filters by it - so \"what do I own that carries this focus\" is one click instead of a read through every card."),
+            ReleaseEntry(.new, "If the app cannot find your EverQuest folder when it starts, it asks: choose it, look again, or not now. The question clears itself the moment an install turns up."),
+            ReleaseEntry(.fixed, "The Current era toggle no longer hides gear it should show. The roster says \"The Plane of Fear\" and the wiki's drop rows say \"Plane of Fear\", and that one word left 357 items judged unknown - whole armor sets, Umbral Platemail among them - invisible while the toggle was on. The same seam kept the planes' mobs off their maps; both spellings are one zone again."),
+            ReleaseEntry(.fixed, "A locked DPS overlay takes your clicks again while the companion is the app in front, so the button that locked it can always unlock it; clicks pass through to the game only when the game is the one you are looking at."),
+            ReleaseEntry(.fixed, "The app no longer crashes on startup over the sound device, and six places where an unexpected value could take it down mid-session cannot any more."),
+            ReleaseEntry(.fixed, "Map labels sit at the elevation they claim, so the game stops filtering them out of dungeons."),
+            ReleaseEntry(.changed, "Catching up on your log takes about two seconds where it took sixteen. The app saves what it has read and resumes from there, and any doubt at all about the file - a different log, an edit, a new build - makes it read the whole thing again from the start."),
+            ReleaseEntry(.changed, "Gear and Loot are one table now: the same columns, sorting and behaviour in both, the zones filter is a type-ahead picker instead of a list to scroll, and every picker popover takes the arrow keys - down and up walk the list, Return picks, the highlight scrolls with you."),
+            ReleaseEntry(.changed, "The Mobs tab is gone. Everything it answered is now a search away, or on the map."),
+            ReleaseEntry(.changed, "The sidebar collapses, the title sits over it, and both columns run the full height of the window, so a wide tab no longer spills across the sidebar."),
+            ReleaseEntry(.changed, "Records read like the item window: no blank lines in a stats block, no empty space held open under a short drop list, and the raw sub-objects folded away until you click them."),
+            ReleaseEntry(.changed, "On the Maps pane the X clears the search and every pin comes back, hiding the side panel is its own button, and an item that drops in more than one zone asks which map you meant instead of choosing for you.")
+        ]),
         ReleaseNote(version: "0.2.0", date: "2026-08-29", entries: [
             ReleaseEntry(.new, "The companion is one program now. Everything it does happens inside the app itself - there is no second process running beside it and nothing listening on a port, so there is nothing for security software to block and nothing left running if the app goes away."),
             ReleaseEntry(.new, "It ships as a single app you can drag anywhere and open. Nothing is installed alongside it."),
