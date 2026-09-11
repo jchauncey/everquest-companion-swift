@@ -195,7 +195,10 @@ release: $(RELNOTES) ## Publish VERSION as a GitHub release with the app attache
 	@if gh release view "$(TAG)" >/dev/null 2>&1; then echo "release $(TAG) already exists"; exit 1; fi
 	$(MAKE) dist-zip
 	@{ $(RELNOTES) render "$(VERSION)"; cat scripts/release-install-note.md; } > dist/release-body.md
-	gh release create "$(TAG)" "$(ZIP)" --title "EQ Companion $(VERSION)" --notes-file dist/release-body.md
+	@gh release create "$(TAG)" "$(ZIP)" --title "EQ Companion $(VERSION)" --notes-file dist/release-body.md \
+		|| { echo; echo "if that was 403: an env GITHUB_TOKEN outranks your gh login, and a fine-grained"; \
+		     echo "PAT scoped to another org cannot write here (a read still works, so nothing warns you)."; \
+		     echo "retry with:  env -u GITHUB_TOKEN make release"; exit 1; }
 	@echo "published: $$(gh release view "$(TAG)" --json url -q .url)"
 
 # ---- housekeeping ---------------------------------------------------------
