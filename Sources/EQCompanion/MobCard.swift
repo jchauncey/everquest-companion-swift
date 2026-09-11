@@ -100,6 +100,10 @@ struct MobCardView: View {
         }
         if let m {
             Card("DROPS (WIKI)") {
+                if let why = m.lootFix {
+                    Text("Two wiki pages, one creature - folded together here.").font(.caption)
+                        .foregroundStyle(Theme.textFaint).help(why)
+                }
                 if m.drops.isEmpty {
                     Text("The page lists no loot for \(m.name).").font(.callout).foregroundStyle(Theme.textFaint)
                 } else {

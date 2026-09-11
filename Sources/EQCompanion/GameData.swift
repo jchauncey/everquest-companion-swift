@@ -10,6 +10,7 @@ import Foundation
 import AppKit
 import EQCompanionCore
 import EQData
+import EQKnowledge
 
 @MainActor
 final class GameData {
@@ -158,7 +159,7 @@ final class GameData {
              eraTag: v["eraTag"].string,
              summary: v["summary"].string,
              statsBlock: v["statsBlock"].string,
-             dropsFrom: (v["dropsFrom"].array ?? []).map { ($0["mob"].string ?? "", $0["zone"].string ?? "") },
+             dropsFrom: dropsFrom(itemKey: key, v).map { ($0.mob, $0.zone) },
              raw: v)
     }
 
@@ -231,23 +232,87 @@ final class GameData {
         var raw: JSONValue
         /// Why this row's `loc` is ours and not the wiki's, when `mobLocFixes.json` corrected it.
         var locFix: String?
+        /// Why this row's `drops` are two wiki pages folded into one, when `mobLootFixes.json` did it.
+        var lootFix: String?
     }
 
     private var mobsCache: [Mob]?
     var mobs: [Mob] {
         if let m = mobsCache { return m }
         let fixes = MobLocFixes.parse(load(roots.data, "mobLocFixes.json"))
-        let m = (load(roots.eqlegends, "mobs.json")["mobs"].array ?? []).map { v in
+        // The loot corrections land on the raw array, as they do for the engine's own index: a
+        // creature the wiki filed under two pages is one row here, or the map shows two rats.
+        let raw = load(roots.eqlegends, "mobs.json")["mobs"].array ?? []
+        let lootFixes = MobLootFixes.parse(load(roots.data, "mobLootFixes.json"))
+        let fixed = MobLootFixes.apply(raw, lootFixes)
+        // An alias that is gone from the fixed array was merged; its `why` marks the survivor.
+        let before = Set(raw.compactMap { $0["name"].string }), after = Set(fixed.compactMap { $0["name"].string })
+        var lootWhy: [String: String] = [:]
+        for a in lootFixes.aliases where before.contains(a.alias) && !after.contains(a.alias) { lootWhy[a.mob] = a.why }
+        let m = fixed.map { v in
             let page = v["page"].string ?? ""
             let wiki = v["loc"].array ?? []
             // A fix whose guard no longer holds is DEAD, not overriding: the corpus moved on.
             let fix = fixes[page].flatMap { MobLocFixes.guardHolds($0, corpus: wiki) ? $0 : nil }
-            return Mob(name: v["name"].string ?? "", page: page, level: v["level"].string ?? "",
+            let name = v["name"].string ?? ""
+            return Mob(name: name, page: page, level: v["level"].string ?? "",
                        zones: (v["zones"].array ?? []).compactMap(\.string), drops: (v["drops"].array ?? []).compactMap(\.string),
-                       loc: fix?.loc ?? wiki, raw: v, locFix: fix?.why)
+                       loc: fix?.loc ?? wiki, raw: v, locFix: fix?.why, lootFix: lootWhy[name])
         }
         mobsCache = m
         return m
+    }
+
+    private var mobPageDropsCache: MobPageDrops?
+    /// Who drops what, by the MOB pages (after the loot fixes). See `MobPageDrops`.
+    var mobPageDrops: MobPageDrops {
+        if let c = mobPageDropsCache { return c }
+        let c = MobPageDrops(mobs: mobs.map(\.raw))
+        mobPageDropsCache = c
+        return c
+    }
+
+    /// An item's drop sources as every surface shows them: the item page's rows, then the mob
+    /// pages' rows it lacks.
+    func dropsFrom(itemKey: String, _ v: JSONValue) -> [GearDrop] {
+        let wiki = (v["dropsFrom"].array ?? []).map { GearDrop(mob: $0["mob"].string ?? "", zone: $0["zone"].string ?? "") }
+        return mobPageDrops.union(wiki, for: itemKey)
+    }
+
+    /// A `knowledge.item` ANSWER (`{found, record}`) with the join applied to the record inside.
+    /// The card holds the answer, not the record - joining at the wrong level is a silent no-op.
+    func withMobPageDrops(answer: JSONValue) -> JSONValue {
+        guard case .object(var o) = answer, let record = o["record"], record.object != nil else { return answer }
+        o["record"] = withMobPageDrops(record)
+        return .object(o)
+    }
+
+    /// A `knowledge.item` answer with YOUR loot joined onto the record's `dropsFrom` - counts on the
+    /// droppers it names, a `via: "your loot"` row for a corpse it does not. Log zones resolve to
+    /// the roster's names so the zone cell still jumps to the map. See `OwnLootSources`.
+    func withOwnLoot(answer: JSONValue, item: String, events: [LootEvent]) -> JSONValue {
+        guard case .object(var o) = answer, let record = o["record"], record.object != nil else { return answer }
+        let sources = OwnLootSources.sources(for: item, in: events)
+        o["record"] = OwnLootSources.join(record, sources) { [self] log in zone(forLogName: log)?.name }
+        return .object(o)
+    }
+
+    /// A `knowledge.item` record with the mob pages' rows joined onto its `dropsFrom`, each joined
+    /// row marked `via: "mob page"` so the card never passes one off as the item page's own.
+    func withMobPageDrops(_ record: JSONValue) -> JSONValue {
+        guard let name = record["name"].string ?? record["queried"].string else { return record }
+        let key = Self.nameKey(ItemNames.itemBaseName(name))
+        let wikiRows = record["dropsFrom"].array ?? []
+        let wiki = wikiRows.map { GearDrop(mob: $0["mob"].string ?? "", zone: $0["zone"].string ?? "") }
+        let extra = mobPageDrops.additions(for: key, beyond: wiki)
+        if extra.isEmpty { return record }
+        var o = record.object ?? [:]
+        o["dropsFrom"] = .array(wikiRows + extra.map {
+            var row: [String: JSONValue] = ["mob": .string($0.mob), "via": .string("mob page")]
+            if !$0.zone.isEmpty { row["zone"] = .string($0.zone) }
+            return .object(row)
+        })
+        return .object(o)
     }
 
     private var mobsByZoneCache: [String: [Mob]]?

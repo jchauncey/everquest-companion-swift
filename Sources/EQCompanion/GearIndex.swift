@@ -436,10 +436,12 @@ final class GearIndex {
         let zonesURL = GameData.shared.roots.generated.appendingPathComponent("zones.json")
         let researchURL = GameData.shared.roots.data.appendingPathComponent("itemsResearch.json")
         let exaltURL = GameData.shared.roots.data.appendingPathComponent("exaltations.json")
+        let mobsURL = GameData.shared.roots.eqlegends.appendingPathComponent("mobs.json")
+        let lootFixesURL = GameData.shared.roots.data.appendingPathComponent("mobLootFixes.json")
         Task.detached(priority: .userInitiated) {
             let began = Date()
             let built = GearIndex.build(itemsURL: itemsURL, zonesURL: zonesURL, researchURL: researchURL,
-                                        exaltationsURL: exaltURL)
+                                        exaltationsURL: exaltURL, mobsURL: mobsURL, lootFixesURL: lootFixesURL)
             let ms = Int(Date().timeIntervalSince(began) * 1000)
             await MainActor.run {
                 self.corpus = built
@@ -451,8 +453,12 @@ final class GearIndex {
 
     /// Pure, off-actor: JSON in, value types out.
     nonisolated static func build(itemsURL: URL, zonesURL: URL, researchURL: URL,
-                                  exaltationsURL: URL? = nil) -> GearCorpus {
+                                  exaltationsURL: URL? = nil, mobsURL: URL? = nil,
+                                  lootFixesURL: URL? = nil) -> GearCorpus {
         var out = GearCorpus()
+
+        // The mob pages' side of the drop relation, joined onto every row below. See MobPageDrops.
+        let mobPages = mobsURL.map { MobPageDrops.load(mobsURL: $0, fixesURL: lootFixesURL) } ?? .empty
 
         // The focus-exaltation overlay (scraped from the wiki), keyed by the item's name fold so a
         // row can carry its own exaltation for display and filtering. See `exaltations.json`.
@@ -573,9 +579,9 @@ final class GearIndex {
             let weight = (stats["weight"].string).flatMap { Double($0) }
 
             let classes = normalizeClasses((stats["classes"].array ?? []).compactMap(\.string))
-            let drops = (v["dropsFrom"].array ?? []).map {
+            let drops = mobPages.union((v["dropsFrom"].array ?? []).map {
                 GearDrop(mob: $0["mob"].string ?? "", zone: $0["zone"].string ?? "")
-            }
+            }, for: key)
             let tag = v["eraTag"].string
             let verdict = layeredVerdict(zoneEras: drops.map { eraOfZone($0.zone) }, tag: tag)
             let exalt = exaltByName[GameData.nameKey(name)]

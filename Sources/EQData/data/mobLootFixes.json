@@ -1,0 +1,40 @@
+{
+  "note": "OURS, not scraped. Every other file in this directory is a verbatim capture of eqlwiki.com; this one corrects the handful of mob pages whose stated loot is provably split or incomplete, so a mob card says what the creature can drop rather than what one wiki page happened to record. A fix is GUARDED - it applies only while the corpus still carries the error it corrects - and CITED, naming the evidence in `why`. See Sources/EQKnowledge/MobLootFixes.swift.",
+  "aliases": [
+    {
+      "mob": "a revultant rat",
+      "alias": "a repulsive rat",
+      "zone": "Plane of Hate",
+      "why": "Two pages for one creature. The game writes only 'a revultant rat' (9,719 lines of a 769k-line Plane of Hate log; 'repulsive' appears zero times). Both pages sit in Plane of Hate and both list Revultant Whip, and Ruby, Diamond and Blue Diamond - looted from revultant rats - are stated only on the 'repulsive' page. Unmerged, the card shows one bracer per class and exactly one warrior item; the 'repulsive' page is where the armour is, and all 15 pieces of it (the full Indicolite and Legionnaire Scale sets) are WAR."
+    },
+    {
+      "mob": "a loathling lich",
+      "alias": "a loathing lich",
+      "zone": "Plane of Hate",
+      "why": "Two pages for one creature. 'loathling' is the only spelling the game writes (7,019 lines; 'loathing' zero). The two tables are disjoint - one carries the armour, the other the gems - and Black Sapphire, Blue Diamond, Jacinth, Ruby and Crystallized Sulfur, all looted from loathling liches, are stated only on the 'loathing' page."
+    },
+    {
+      "mob": "Innoruuk's Chosen",
+      "alias": "Innoruuk`s Chosen",
+      "zone": "Plane of Hate",
+      "why": "One creature under two punctuations. `mobKey` folds the backtick to an apostrophe, so both pages claim one key and MobIndex keeps whichever it met first - silently discarding the other's Star Ruby, Fire Emerald and Sapphire. The game writes the backtick; the apostrophe page carries the 18 armour drops, so it stays canonical and the merge only recovers what was being thrown away."
+    }
+  ],
+  "drops": [
+    {
+      "mob": "Cleric of Innoruuk",
+      "add": ["Woven Shadow Helm"],
+      "why": "Looted Woven Shadow Helm +2 on Tue Sep 08 2026 in Plane of Hate. The page already lists the helm of seven other armour lines and nothing else; this completes the set it plainly drops."
+    },
+    {
+      "mob": "a haunted chest",
+      "add": ["Lustrous Russet Helm"],
+      "why": "Looted Lustrous Russet Helm +2 on Thu Sep 03 2026 in Plane of Hate. The page lists that line's Bracer already."
+    },
+    {
+      "mob": "a loathling lich",
+      "add": ["Wand of Souls"],
+      "why": "Looted Wand of Souls +1 on Thu Sep 03 2026 in Plane of Hate. On neither of the lich's two pages; the creature already drops Wand of Conflagration."
+    }
+  ]
+}

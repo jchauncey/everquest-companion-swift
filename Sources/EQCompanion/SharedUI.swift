@@ -66,7 +66,18 @@ struct KnowledgeCard: View {
                 let second = try await model.client.request(op, ["name": .string(alt)])
                 if second["found"].bool != false { answer = second; resolved = alt }
             }
-            result = answer
+            // The mob pages' drop rows, joined here rather than in the engine: `knowledge.item` is
+            // an answer the golden oracle pins. Each joined row says `via`. See MobPageDrops.
+            result = domain == "item" ? GameData.shared.withMobPageDrops(answer: answer) : answer
+            // Then your own log, the way the Loot tab reads it. The card is already drawn by now,
+            // so a slow or failed snapshot costs the counts and nothing else.
+            if domain == "item", result["found"].bool != false {
+                let snap = ModuleSnapshot()
+                await snap.refresh(model, module: "loot")
+                let state = snap.state
+                let events = await Task.detached(priority: .userInitiated) { LootEvent.parse(state) }.value
+                result = GameData.shared.withOwnLoot(answer: result, item: resolved ?? name, events: events)
+            }
         } catch { self.error = "\(error)" }
     }
 }

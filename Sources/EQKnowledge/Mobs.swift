@@ -61,7 +61,10 @@ public final class MobIndex {
         guard let text = EQData.text("mobs.json"), let file = try? JSONValue.parse(text) else {
             fatalError("mobs.json is not readable")
         }
-        let mobs = file["mobs"].array ?? []
+        // The committed corrections land HERE, on the raw array, because one of them merges two
+        // pages that fold to a single `mobKey` - by the time `byName` exists, one of the pair has
+        // already been dropped. See MobLootFixes.swift.
+        let mobs = MobLootFixes.apply(file["mobs"].array ?? [])
         var byName: [String: JSONValue] = [:]
         byName.reserveCapacity(mobs.count * 2)
         var names: [String] = []
