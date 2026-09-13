@@ -89,7 +89,7 @@ final class OverlayPanel {
         let p = NSPanel(contentRect: defaultRect,
                         styleMask: [.nonactivatingPanel, .borderless, .utilityWindow],
                         backing: .buffered, defer: false)
-        p.level = .floating
+        p.level = Self.level(gameInFront: GamePresence.shared.isFrontmost)
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         p.isOpaque = false
         p.backgroundColor = .clear
@@ -126,11 +126,23 @@ final class OverlayPanel {
         !movable && !appActive
     }
 
+    /// How high the panel floats. `.floating` (3) clears every ordinary window, and
+    /// `.fullScreenAuxiliary` lets it join a native full-screen Space - but the game is not native.
+    /// Wine's Mac driver puts an ACTIVE FULL-SCREEN window at main-menu+1 (25), so a panel at 3 is on
+    /// screen, ordered front, and entirely behind the game. While the game is in front the panel
+    /// rides above that (`.popUpMenu`, 101: above the menu bar's neighbourhood, below the screen
+    /// saver and system alerts); the moment anything else is, it drops back to `.floating` so it
+    /// never sits over another app's menus or dialogs. Pure, so the rule can be stated in a test.
+    static func level(gameInFront: Bool) -> NSWindow.Level {
+        gameInFront ? .popUpMenu : .floating
+    }
+
     /// On screen exactly when the owner wants it and auto-hide is not taking it away.
     func apply() {
         if wanted && !OverlayHost.suppressed {
             let p = panel ?? make()
             panel = p
+            p.level = Self.level(gameInFront: GamePresence.shared.isFrontmost)
             p.ignoresMouseEvents = Self.clickThrough(movable: movable, appActive: NSApp.isActive)
             p.isMovableByWindowBackground = movable
             p.orderFrontRegardless()
