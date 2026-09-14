@@ -53,6 +53,12 @@ enum ReleaseNotes {
 
     /// Every release, NEWEST FIRST — the order the panel renders and every derivation below assumes.
     static let all: [ReleaseNote] = [
+        ReleaseNote(version: "1.0.1", date: "2026-09-14", entries: [
+            ReleaseEntry(.fixed, "The DPS and other overlays stay above the game when it is full screen. They rise while EverQuest is the app in front and drop back the moment anything else is, so the meter never sits over another app's menus or dialogs."),
+            ReleaseEntry(.fixed, "A mob the wiki files under two names is one creature again. The card for a revultant rat used to show one bracer per class and a single warrior item because the armour lived on the page for a spelling the game never writes; now the rat you fight lists everything, and the same goes for a loathling lich and Innoruuk's Chosen. A merged mob says so on its card."),
+            ReleaseEntry(.changed, "\"Who drops this\" now asks every page that knows. The item pages alone missed half the gear you could see dropping in Plane of Hate, and named the wrong plane for some of it; the mob pages had it right, so the item card, the Gear zone filter, the era verdict and the jump to the map all read both. A dropper only the mob page knew is marked via: mob page. Across the corpus, 1,307 items gained a dropper and 31 stopped being judged unknown."),
+            ReleaseEntry(.new, "Your own log is on the item card. A dropper you have looted it from shows how many times, and a corpse no wiki page names becomes its own row marked via: your loot - so the golem that dropped your Indicolite Helm twice is no longer missing from its card.")
+        ]),
         ReleaseNote(version: "1.0.0", date: "2026-09-10", entries: [
             ReleaseEntry(.new, "Search lives in the toolbar, on every tab. Type a zone, a mob or an item and go straight to it - a zone or a mob opens the map with the camera on the pin, an item opens its card. Finding something used to mean knowing first which tab knew about it."),
             ReleaseEntry(.new, "One item card, wherever you meet an item. Gear, a Loot drill-down and a mob's drop list all open the same card - the full weapon numbers, what it gives you, who drops it, and a slider for the +N versions - instead of a different half-answer in each place."),
