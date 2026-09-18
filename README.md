@@ -91,6 +91,10 @@ missed the point — what it replaces is kept under `.build/`:
 make draft-notes V=0.3.0 REDRAFT=1 NOTE="shorter, and lead with the overlay"
 ```
 
+`make release` publishes as whichever account `gh` is logged in as — unless `PERSONAL_GITHUB_TOKEN`
+is exported, in which case that token is handed to `gh` for the release calls alone, ahead of any
+`GITHUB_TOKEN` in the shell (useful when the shell's token belongs to another org).
+
 Nothing in `tag` or `release` calls either one — the notes ship inside the build, so they cannot
 depend on a CLI or a network, and the log knows what changed while only a person knows which of it
 a player would care about. Drafting needs the `claude` CLI; the tool behind all three targets

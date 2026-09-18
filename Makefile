@@ -21,6 +21,13 @@ ZIP := dist/EQCompanion-$(VERSION).zip
 # release as Markdown, and drafts a first pass from the commit log. Built into .build/ rather than
 # `go run` so a refusal reads as its own message and not as "exit status 1" after it.
 RELNOTES := .build/relnotes
+
+# The gh that publishes a release. This repository is personal, and the shell's GITHUB_TOKEN may
+# be a fine-grained PAT scoped to another org - it reads this repo fine and cannot write it, so
+# nothing warns until the release POST 403s after the build. gh reads GH_TOKEN ahead of
+# GITHUB_TOKEN, so when PERSONAL_GITHUB_TOKEN is set it is handed to these calls and no others;
+# unset, gh falls through to whatever it would have used anyway.
+GH := $(if $(PERSONAL_GITHUB_TOKEN),GH_TOKEN="$(PERSONAL_GITHUB_TOKEN)" )gh
 REMOTE ?= upstream
 
 .DEFAULT_GOAL := help
@@ -192,14 +199,14 @@ release: $(RELNOTES) ## Publish VERSION as a GitHub release with the app attache
 	@git rev-parse -q --verify "refs/tags/$(TAG)" >/dev/null || { echo "no tag $(TAG) — run: make tag V=$(VERSION)"; exit 1; }
 	@git ls-remote --tags $(REMOTE) "refs/tags/$(TAG)" | grep -q . \
 		|| { echo "tag $(TAG) is not on $(REMOTE) — run: git push $(REMOTE) main --follow-tags"; exit 1; }
-	@if gh release view "$(TAG)" >/dev/null 2>&1; then echo "release $(TAG) already exists"; exit 1; fi
+	@if $(GH) release view "$(TAG)" >/dev/null 2>&1; then echo "release $(TAG) already exists"; exit 1; fi
 	$(MAKE) dist-zip
 	@{ $(RELNOTES) render "$(VERSION)"; cat scripts/release-install-note.md; } > dist/release-body.md
-	@gh release create "$(TAG)" "$(ZIP)" --title "EQ Companion $(VERSION)" --notes-file dist/release-body.md \
-		|| { echo; echo "if that was 403: an env GITHUB_TOKEN outranks your gh login, and a fine-grained"; \
-		     echo "PAT scoped to another org cannot write here (a read still works, so nothing warns you)."; \
-		     echo "retry with:  env -u GITHUB_TOKEN make release"; exit 1; }
-	@echo "published: $$(gh release view "$(TAG)" --json url -q .url)"
+	@$(GH) release create "$(TAG)" "$(ZIP)" --title "EQ Companion $(VERSION)" --notes-file dist/release-body.md \
+		|| { echo; echo "if that was 403: the token gh used cannot write this repository. Export"; \
+		     echo "PERSONAL_GITHUB_TOKEN (a token for the account that owns it) and run make release"; \
+		     echo "again; it is handed to gh ahead of GITHUB_TOKEN for this target only."; exit 1; }
+	@echo "published: $$($(GH) release view "$(TAG)" --json url -q .url)"
 
 # ---- housekeeping ---------------------------------------------------------
 
