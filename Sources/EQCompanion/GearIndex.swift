@@ -38,6 +38,24 @@ let gearStatKeys: [String] = [
 
 private let gearStatKeySet = Set(gearStatKeys)
 
+/// The stats the Gear page's Stats picker offers, in the table's column order: what an item GIVES.
+/// The weapon columns and weight are left out - every weapon has a damage and everything has a
+/// weight, so "has DMG" narrows nothing and reads as a slot filter wearing the wrong hat.
+let gearStatFilterKeys: [String] = gearStatKeys.filter { !gearWeaponColumnKeys.contains($0) && !["DMG_BONUS", "BACKSTAB", "RANGE", "WEIGHT"].contains($0) }
+
+/// How the Stats picker spells a key. The table's columns say `MP`; the picker says what a
+/// player asks for.
+func gearStatFilterLabel(_ key: String) -> String {
+    key == "MP" ? "MANA" : key.replacingOccurrences(of: "_", with: " ")
+}
+
+/// The Stats picker's rule: an item passes when it GIVES every chosen stat - present in its vector
+/// and positive. AND, not OR, so each stat added narrows the table further; that is the question
+/// "what has STR and WIS" asks. A penalty (-5 CHA) is not having CHA. An empty pick passes all.
+func gearGivesEveryStat(_ stats: [String: Int], _ want: Set<String>) -> Bool {
+    want.allSatisfy { (stats[$0] ?? 0) > 0 }
+}
+
 /// Keys the table may draw as a numeric column: the corpus's own stats, plus the ratio it computes.
 /// A sort key outside this set names a TEXT column and must never be mistaken for a stat.
 let gearNumericColumnKeys: Set<String> = gearStatKeySet.union(["RATIO"])

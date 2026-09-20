@@ -33,6 +33,7 @@ struct GearTableView: View {
     @State private var zones: Set<String> = []
     /// Focus-exaltation effect names to keep (empty = every item, exalted or not).
     @State private var exaltEffects: Set<String> = []
+    @State private var stats: Set<String> = []
     @State private var eraOnly = true
     @State private var ownedOnly = false
     @State private var tier = 0
@@ -178,6 +179,10 @@ struct GearTableView: View {
                 FilterMultiPicker(title: "Exaltation", empty: "any exaltation",
                                   options: GameData.shared.exaltationEffects, selection: $exaltEffects,
                                   placeholder: "Find a focus effect\u{2026}")
+                FilterMultiPicker(title: "Stats", empty: "any stats",
+                                  options: gearStatFilterKeys, selection: $stats,
+                                  label: gearStatFilterLabel,
+                                  placeholder: "Find a stat\u{2026}")
             }
             FlowRow(spacing: 8, lineSpacing: 8) {
                 toggleChip("Current era", on: $eraOnly, help: "Hide items from outside \(currentEraLabel)")
@@ -298,6 +303,11 @@ struct GearTableView: View {
             out.append(GearFilter(label: "the Exaltation picker") { row in
                 row.exaltation.map { exaltEffects.contains($0.effect) } ?? false
             })
+        }
+        if !stats.isEmpty {
+            // Every chosen stat, not any: see `gearGivesEveryStat`.
+            let want = stats
+            out.append(GearFilter(label: "the Stats picker") { gearGivesEveryStat($0.stats, want) })
         }
         if eraOnly {
             // Note that an UNKNOWN era hides too — the Electron rule, and the honest one for a
