@@ -273,6 +273,7 @@ func draft(root, src string, releases []release, argv []string) {
 		fail("cannot write %s: %v", notesPath, err)
 	}
 	fmt.Fprintf(os.Stderr, "drafted %s into %s — READ IT AND EDIT IT.\n"+
-		"then: swift test --filter EQCompanionTests.ReleaseNotesTests && make tag V=%s\n",
+		"then: swift test --filter EQCompanionTests.ReleaseNotesTests, commit the notes (make tag refuses a dirty tree -\n"+
+		"      they ship inside the build), and make tag V=%s\n",
 		version, notesPath, version)
 }
