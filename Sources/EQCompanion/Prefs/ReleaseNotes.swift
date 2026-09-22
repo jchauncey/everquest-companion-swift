@@ -53,6 +53,14 @@ enum ReleaseNotes {
 
     /// Every release, NEWEST FIRST — the order the panel renders and every derivation below assumes.
     static let all: [ReleaseNote] = [
+        ReleaseNote(version: "1.0.2", date: "2026-09-22", entries: [
+            ReleaseEntry(.new, "A Motes tab: where the Motes of Potential come from. Every counted kill and every mote you have looted are joined into one row per mob at one difficulty, with kills, corpses that gave a mote, drop rate, motes per kill and a column per grade."),
+            ReleaseEntry(.new, "The question a farmer asks is where it is worth standing. Until now the answer was a memory of a good evening in one zone; the log had the numbers all along but nothing added them up."),
+            ReleaseEntry(.new, "Regroup the same rows by mob, zone, difficulty, named vs trash or level band, and filter first, so \"Plane of Hate, by difficulty\" compares the tiers of one zone. A group's rate is its corpses over its kills, never an average of averages."),
+            ReleaseEntry(.new, "The rate is yours, not the server's: a group-mate who loots a corpse takes the mote out of your log but not the kill out of your count, and the caption says so. \"Only mobs that gave a mote\" is on by default; turn it off and a zero is a fact about that mob."),
+            ReleaseEntry(.new, "Gear page filters on stats. Pick STR and WIS and see only what gives both; each stat you add narrows the table further. A penalty like -5 CHA does not count as having CHA."),
+            ReleaseEntry(.fixed, "The minus button on the Sky quest card's turn-in counter can be clicked. It was only live along a line two points tall, so a turn-in recorded by hand could not be taken back; both buttons now have the same square target.")
+        ]),
         ReleaseNote(version: "1.0.1", date: "2026-09-14", entries: [
             ReleaseEntry(.fixed, "The DPS and other overlays stay above the game when it is full screen. They rise while EverQuest is the app in front and drop back the moment anything else is, so the meter never sits over another app's menus or dialogs."),
             ReleaseEntry(.fixed, "A mob the wiki files under two names is one creature again. The card for a revultant rat used to show one bracer per class and a single warrior item because the armour lived on the page for a spelling the game never writes; now the rat you fight lists everything, and the same goes for a loathling lich and Innoruuk's Chosen. A merged mob says so on its card."),
