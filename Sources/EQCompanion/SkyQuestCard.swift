@@ -126,14 +126,24 @@ struct SkyQuestCard: View {
             Spacer()
             Text(q.turnIns > 0 ? SkyTurnIns.badgeLabel(q.turnIns) : "Not turned in yet")
                 .font(.caption2).foregroundStyle(Theme.textDim)
-            Button { store.undoTurnIn(q.key) } label: { Image(systemName: "minus") }
-                .buttonStyle(.plain).font(.caption)
+            // A plain button's hit area is its label's bounds, and the `minus` glyph is a line two
+            // points tall - the `plus` beside it worked because it has a bar to land on. Both get
+            // the same square, so the counter is two equal targets rather than one and a hairline.
+            Button { store.undoTurnIn(q.key) } label: { counterGlyph("minus") }
+                .buttonStyle(.plain)
                 .disabled(q.evidence != nil || q.turnIns <= q.logTurnIns)
                 .help(undoHelp)
-            Button { store.recordTurnIn(q.key) } label: { Image(systemName: "plus") }
-                .buttonStyle(.plain).font(.caption)
+            Button { store.recordTurnIn(q.key) } label: { counterGlyph("plus") }
+                .buttonStyle(.plain)
                 .help("Record another turn-in. The items it required are subtracted, so the quest goes back to what you hold toward running it again.")
         }
+    }
+
+    /// One counter button's face: the glyph centred in a fixed square that is all clickable.
+    private func counterGlyph(_ symbol: String) -> some View {
+        Image(systemName: symbol).font(.caption)
+            .frame(width: 18, height: 18)
+            .contentShape(Rectangle())
     }
 
     private var undoHelp: String {
