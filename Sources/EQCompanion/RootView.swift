@@ -2,13 +2,13 @@ import SwiftUI
 import EQCompanionCore
 
 enum Tab: String, CaseIterable, Identifiable {
-    case overview, combat, mobs, loot, gear, maps, raidTargets, planeOfSky, alerts, leveling, buffs, timers
+    case overview, combat, mobs, loot, motes, gear, maps, raidTargets, planeOfSky, alerts, leveling, buffs, timers
     case events, knowledge, spells, engine
     var id: String { rawValue }
 
     /// The Electron nav order, then the Mac-only extras.
     /// The Electron nav order, minus Mobs — the global search box replaced that page.
-    static let primary: [Tab] = [.overview, .combat, .loot, .gear, .maps, .raidTargets, .planeOfSky, .alerts, .leveling, .buffs, .timers]
+    static let primary: [Tab] = [.overview, .combat, .loot, .motes, .gear, .maps, .raidTargets, .planeOfSky, .alerts, .leveling, .buffs, .timers]
     static let secondary: [Tab] = [.events, .knowledge, .spells, .engine]
 
     var label: String {
@@ -17,6 +17,7 @@ enum Tab: String, CaseIterable, Identifiable {
         case .combat: return "Combat"
         case .mobs: return "Mobs"
         case .loot: return "Loot"
+        case .motes: return "Motes"
         case .gear: return "Gear"
         case .maps: return "Maps"
         case .raidTargets: return "Raid Targets"
@@ -38,6 +39,7 @@ enum Tab: String, CaseIterable, Identifiable {
         case .combat: return "chart.bar.fill"
         case .mobs: return "pawprint.fill"
         case .loot: return "shippingbox.fill"
+        case .motes: return "circle.hexagongrid.fill"
         case .gear: return "figure.stand"
         case .maps: return "map.fill"
         case .raidTargets: return "trophy.fill"
@@ -128,6 +130,7 @@ struct RootView: View {
         case .combat: CombatView()
         case .mobs: MobsView()
         case .loot: LootView()
+        case .motes: MotesView()
         case .gear: GearView()
         case .maps: MapsView()
         case .raidTargets: RaidTargetsView()
