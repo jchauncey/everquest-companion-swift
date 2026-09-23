@@ -451,9 +451,11 @@ public final class EngineState {
     /// Append one classified line — the whole of the classification ring. The `recording` gate lives
     /// INSIDE this method rather than at its forty call sites, which is what makes "a replay writes
     /// nothing" a structural fact. A display buffer and nothing else.
-    public func log(_ ts: Int64, _ cat: String, _ role: String, _ text: String) {
+    ///
+    /// `text` is an autoclosure so a replay, which records nothing, never builds the sentence.
+    public func log(_ ts: Int64, _ cat: String, _ role: String, _ text: @autoclosure () -> String) {
         if !recording { return }
-        recent.append(ClassifiedLine(ts: ts, cat: cat, role: role, text: text))
+        recent.append(ClassifiedLine(ts: ts, cat: cat, role: role, text: text()))
         if recent.count > RECENT_CAP { recent.removeFirst() }
     }
 
