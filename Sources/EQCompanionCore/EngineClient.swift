@@ -163,10 +163,9 @@ public final class EngineClient {
     private func add<T>(_ dict: inout [UUID: T], _ l: T) -> () -> Void {
         let id = UUID()
         dict[id] = l
-        return { [weak self] in _ = self.map { _ in } ; self?.remove(id) }
+        return { [weak self] in self?.remove(id) }
     }
 
-    private var removers: [UUID: () -> Void] = [:]
     private func remove(_ id: UUID) {
         stateListeners[id] = nil
         progressListeners[id] = nil
@@ -218,7 +217,8 @@ public final class EngineClient {
             h.set(next)
         case .epoch(let e, let reason, let progress):
             if reason == "attach" || reason == "restart" {
-                if epoch != e { bump(to: e, reason: reason) } else { bump(to: e, reason: reason) }
+                // Always, even at the held epoch: an attach or restart re-queries every window.
+                bump(to: e, reason: reason)
             } else if epoch == nil {
                 epoch = e
             }
