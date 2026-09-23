@@ -677,6 +677,19 @@ final class StateDirTests: XCTestCase {
                        "the overlay's write disturbed the ledger's memory")
     }
 
+    func testAFoldDetachedBeforeGoingLiveLeavesTheLedgerAlone() throws {
+        // A preempted scan holds a prefix of the log in its own bucket; the saved ledger holds the
+        // whole of it. The detach must keep the saved one.
+        let dir = try scratch("preempt")
+        let path = dir.appendingPathComponent(StateFiles.resistLedger)
+        try Self.appLedger.write(to: path, atomically: true, encoding: .utf8)
+        let sink = FoldSink(SinkInputs(log: URL(fileURLWithPath: "/nowhere/eqlog_Primitive_freeport.txt"),
+                                       character: "Primitive", db: SpellDb.shared(), clock: Clock.host(),
+                                       attachedAtMs: 0, stateDir: dir))
+        sink.detach()
+        XCTAssertEqual(try String(contentsOf: path, encoding: .utf8), Self.appLedger)
+    }
+
     func testAWriteIntoAMissingDirectoryCreatesIt() throws {
         let dir = try scratch("makedir").appendingPathComponent("not/yet")
         try writeDurable(dir.appendingPathComponent(StateFiles.resistLedger), Self.appLedger)

@@ -143,7 +143,12 @@ public final class FoldSink: EventSink {
 
     /// The fold is being replaced. The last chance this generation's ledger has to reach the disk,
     /// coalesced by the same fingerprint, so a detach that follows a beat writes nothing.
+    ///
+    /// Only once the fold has gone live. `seedPersisted` gave this source an empty bucket that the
+    /// scan fills, so a fold preempted mid-scan holds a prefix of the log; flushing it would put
+    /// that prefix over the complete bucket the last live session wrote.
     public func detach() {
+        guard live else { return }
         state?.flush(fold.registry)
     }
 
