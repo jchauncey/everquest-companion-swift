@@ -134,6 +134,12 @@ public final class EngineClient {
             do {
                 _ = try await c.request(Op.viewSubscribe, h?.descriptor.toJSON() ?? [:], id: id, deadline: EngineLinkDefaults.deadline)
             } catch {
+                // A deadline settles only this side: the subscribe is still queued on the link and
+                // will open when it runs. The unsubscribe queues behind it and closes it, so the
+                // engine does not serve a window nobody holds for the rest of the connection.
+                if case EngineError.timeout = error {
+                    c.post(Op.viewUnsubscribe, ["subscription": .int(Int64(id))])
+                }
                 guard let self, let h, h.wireId == id else { return }
                 self.byWireId[id] = nil
                 h.wireId = nil
