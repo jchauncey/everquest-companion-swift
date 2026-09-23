@@ -43,13 +43,23 @@ final class BridgeCache {
     var ns: NSString = ""
     var range = NSRange(location: 0, length: 0)
 
+    /// This thread's cache, through a pthread key: every regex call asks, and the thread dictionary
+    /// (a bridged String key and an `as?` cast per call) was a measurable share of a fold.
     static var current: BridgeCache {
-        let key = "eqlog.re.bridge"
-        if let c = Thread.current.threadDictionary[key] as? BridgeCache { return c }
+        if let p = pthread_getspecific(bridgeKey) {
+            return Unmanaged<BridgeCache>.fromOpaque(p).takeUnretainedValue()
+        }
         let c = BridgeCache()
-        Thread.current.threadDictionary[key] = c
+        pthread_setspecific(bridgeKey, Unmanaged.passRetained(c).toOpaque())
         return c
     }
+
+    /// Released with its thread.
+    private static let bridgeKey: pthread_key_t = {
+        var key = pthread_key_t()
+        pthread_key_create(&key) { Unmanaged<BridgeCache>.fromOpaque($0).release() }
+        return key
+    }()
 
     @inline(__always)
     func bridged(_ s: String) -> (NSString, NSRange) {
