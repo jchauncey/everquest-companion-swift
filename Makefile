@@ -199,6 +199,10 @@ release: $(RELNOTES) ## Publish VERSION as a GitHub release with the app attache
 	@git rev-parse -q --verify "refs/tags/$(TAG)" >/dev/null || { echo "no tag $(TAG) — run: make tag V=$(VERSION)"; exit 1; }
 	@git ls-remote --tags $(REMOTE) "refs/tags/$(TAG)" | grep -q . \
 		|| { echo "tag $(TAG) is not on $(REMOTE) — run: git push $(REMOTE) main --follow-tags"; exit 1; }
+	@# The zip is built from the working tree, so the tree must BE the tag: checked out at it, clean.
+	@test "$$(git rev-parse HEAD)" = "$$(git rev-parse "$(TAG)^{commit}")" \
+		|| { echo "HEAD is not $(TAG) — check out the tag (or main at it) before releasing"; exit 1; }
+	@test -z "$$(git status --porcelain)" || { echo "working tree is dirty — the release would not be $(TAG)"; exit 1; }
 	@if $(GH) release view "$(TAG)" >/dev/null 2>&1; then echo "release $(TAG) already exists"; exit 1; fi
 	$(MAKE) dist-zip
 	@{ $(RELNOTES) render "$(VERSION)"; cat scripts/release-install-note.md; } > dist/release-body.md
