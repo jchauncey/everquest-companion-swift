@@ -63,3 +63,6 @@ if [ -d "$HERE/Goldens" ]; then mv "$HERE/Goldens" "$STAGE/Goldens.old"; fi
 mv "$OUT" "$HERE/Goldens"
 DONE=1
 echo "Goldens/ replaced — upstream $(head -1 "$HERE/Goldens/UPSTREAM")"
+
+# CI's copy of the fixture goldens follows the new set (the Makefile target keeps _real out).
+make -C "$HERE" goldens-pack

@@ -16,10 +16,11 @@ for everything here. Port faithfully — the upstream comments state rules, and 
 `make help` lists every target; the Makefile is a thin wrapper over exactly the commands below, so
 what CI runs and what you run are the same lines. `make verify` is the CI entry point.
 
-CI (`.circleci/config.yml`) builds both packages and runs the suite on every push. It CANNOT prove
-parity: `Goldens/` and the owner's EverQuest install do not exist on a CI box, so those suites
-`XCTSkip` there. The run prints the skip count and reasons so a green build never reads as more
-than it is — only a local `make verify` with `Goldens/` present proves byte-identity.
+CI (`.circleci/config.yml`) builds both packages and runs the suite on every push. It unpacks
+`ci/goldens.tar.xz` (every fixture's goldens, ~1.3 MB, `make goldens-pack` refreshes it and
+`gen-goldens.sh` calls that) into `Goldens/` first, so fixture parity IS checked there. It cannot
+check `_real` or the owner's EverQuest install — those suites `XCTSkip`, and the run prints the
+skip count and reasons. Only a local `make verify` covers the real log.
 
 ```sh
 swift build                                   # debug build of every target

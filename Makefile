@@ -79,7 +79,7 @@ test-app: ## Run only the SwiftUI app tests (fast; no goldens needed)
 
 .PHONY: test-engine
 test-engine: ## Run only the engine suites (the golden oracles)
-	$(SWIFT) test --filter 'EQLogTests|EQFoldTests|EQEngineTests|EQKnowledgeTests'
+	$(SWIFT) test --filter 'EQLogTests|EQFoldTests|EQEngineTests'
 
 # make test-one FILTER=EQFoldTests.GoldenSnapshotsTests
 .PHONY: test-one
@@ -97,6 +97,19 @@ verify: ## What CI runs: build, then the full suite
 .PHONY: goldens
 goldens: ## Re-cut Goldens/ from the upstream RUST engine (needs cargo + $UPSTREAM)
 	scripts/gen-goldens.sh $(UPSTREAM)
+
+.PHONY: goldens-pack
+goldens-pack: ## Refresh ci/goldens.tar.xz (the fixtures' goldens for CI) from Goldens/ — never _real
+	@test -d Goldens || { echo "no Goldens/ to pack"; exit 1; }
+	@tar -C Goldens --exclude=_real -cf - . | xz -9e -T0 > ci/goldens.tar.xz
+	@if tar -tJf ci/goldens.tar.xz | grep -q '_real'; then rm ci/goldens.tar.xz; echo "_real leaked into the archive — removed"; exit 1; fi
+	@echo "ci/goldens.tar.xz ($$(du -h ci/goldens.tar.xz | cut -f1 | tr -d ' '))"
+
+.PHONY: goldens-unpack
+goldens-unpack: ## Unpack ci/goldens.tar.xz into Goldens/ (what CI runs; FORCE=1 over an existing one)
+	@if [ -d Goldens ] && [ -z "$(FORCE)" ]; then echo "Goldens/ exists — FORCE=1 to overwrite its fixture goldens"; exit 1; fi
+	@mkdir -p Goldens && tar -C Goldens -xJf ci/goldens.tar.xz
+	@echo "Goldens/ unpacked: $$(ls Goldens | wc -l | tr -d ' ') fixtures"
 
 .PHONY: exaltations
 exaltations: ## Re-scrape Sources/EQData/data/exaltations.json from the wiki
