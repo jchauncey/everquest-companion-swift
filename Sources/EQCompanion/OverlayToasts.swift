@@ -198,6 +198,7 @@ final class CelebrationWatch {
     private func watch() {
         withObservationTracking {
             _ = model?.epoch
+            _ = model?.launchPhase
             _ = model?.moduleSeqs["kills"]
             _ = model?.moduleSeqs["turnins"]
         } onChange: {
@@ -211,6 +212,10 @@ final class CelebrationWatch {
 
     private func read() {
         guard let model, model.client.isReady, !reading else { return }
+        // Nothing is read until the fold is live. During catch-up `module.snapshot` answers with the
+        // prefix folded so far (or not at all), and a baseline taken from it makes every later kill
+        // and turn-in in the history look new the moment the fold lands.
+        guard model.launchPhase == .live else { return }
         if epoch != model.epoch {
             // A new world: everything it is about to report already happened.
             epoch = model.epoch
@@ -246,6 +251,7 @@ final class CelebrationWatch {
 
     private func readQuests(_ model: AppModel) async {
         await sky.refresh(model)
+        if sky.lastRefreshFailed { return }
         var next: [String: Int] = [:]
         for q in sky.quests { next[q.key] = q.logTurnIns }
         defer { questBaseline = next }

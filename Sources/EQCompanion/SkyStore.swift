@@ -57,6 +57,9 @@ final class SkyStore {
 
     private(set) var loot: [SkyLootEvent] = []
     private(set) var turnInEvents: [SkyTurnInEvent] = []
+    /// True when a module snapshot in the last `refresh` did not answer, so the quest state is
+    /// partial. A reader that diffs refreshes (the celebration watch) must not take it as a baseline.
+    private(set) var lastRefreshFailed = false
     private(set) var classUnlocks: [(className: String, ts: Int64)] = []
     private(set) var inventory: [String: Int] = [:]
     private(set) var inventoryPath: String?
@@ -175,6 +178,7 @@ final class SkyStore {
             ambiguousNames = skyAmbiguousQuestNames(defs)
         }
         guard model.client.isReady else { loading = false; return }
+        lastRefreshFailed = false
         loot = SkyLootEvent.parse(await snapshot(model, "loot"))
         turnInEvents = SkyTurnInEvent.parse(await snapshot(model, "turnins"))
         classUnlocks = (await snapshot(model, "classUnlocks")).array?.compactMap { v in
@@ -187,7 +191,11 @@ final class SkyStore {
     }
 
     private func snapshot(_ model: AppModel, _ module: String) async -> JSONValue {
-        (try? await model.client.request(Op.moduleSnapshot, ["module": .string(module)], deadline: 15))?["state"] ?? .null
+        guard let r = try? await model.client.request(Op.moduleSnapshot, ["module": .string(module)], deadline: 15) else {
+            lastRefreshFailed = true
+            return .null
+        }
+        return r["state"]
     }
 
     /// Find and read the newest `/outputfile inventory` dump for the attached character. The game
