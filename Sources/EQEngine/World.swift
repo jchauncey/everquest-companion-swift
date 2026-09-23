@@ -1002,12 +1002,15 @@ public final class World: @unchecked Sendable {
     /// A `report*` method like every other statement an ingest makes, with ownership re-asked
     /// inside the lock: a turn that has already lost must not be able to install a door onto a fold
     /// nobody wants.
-    @discardableResult
-    public func serveWrites(_ generation: UInt64, _ push: Mailbox<Write>) -> Bool {
+    ///
+    /// Answers with the held defines, copied in the same critical section that installs the door:
+    /// a `define` that lands before it is in the copy, one that lands after goes through the door,
+    /// and none can fall between the two. nil when this turn has lost.
+    public func serveWrites(_ generation: UInt64, _ push: Mailbox<Write>) -> [(String, JSONValue)]? {
         locked {
-            if !owns(generation) { return false }
+            if !owns(generation) { return nil }
             writeTo = push
-            return true
+            return defines.keys.sorted().map { ($0, defines[$0]!) }
         }
     }
 

@@ -804,15 +804,6 @@ public enum Ingest {
             }
         }
 
-        // App knowledge, applied before the first byte. A `*.define` pushed before this attach — an
-        // ordinary launch, since the app pushes all five on connect and attaches afterwards — is
-        // held by the world and applied here, at construction. Alert defs, buff trust, respawn
-        // watches, combo corrections and roster edits all change what a fold produces, so taking
-        // them after the historical scan would fold the log twice into two different answers.
-        for (family, payload) in world.heldDefines() {
-            _ = sink.define(family, payload)
-        }
-
         if !world.reportStatus(generation, .folding) { return .preempted }
 
         // The snapshot door opens before the first byte is folded, so `module.snapshot` can be
@@ -827,7 +818,19 @@ public enum Ingest {
         // queue rather than a second case on the first, because the two carry opposite directions
         // and share nothing but the boundary they are serviced at.
         let writes = Mailbox<Write>()
-        if !world.serveWrites(generation, writes) { return .preempted }
+        guard let held = world.serveWrites(generation, writes) else { return .preempted }
+
+        // App knowledge, applied before the first byte. A `*.define` pushed before this attach — an
+        // ordinary launch, since the app pushes all five on connect and attaches afterwards — is
+        // held by the world and applied here, at construction. Alert defs, buff trust, respawn
+        // watches, combo corrections and roster edits all change what a fold produces, so taking
+        // them after the historical scan would fold the log twice into two different answers.
+        //
+        // The copy comes from `serveWrites`, taken with the door installed: read any earlier and a
+        // define pushed in between is recorded by the world but reaches no fold of this generation.
+        for (family, payload) in held {
+            _ = sink.define(family, payload)
+        }
 
         // Whatever this fold owns gets one last chance to reach the disk, and both doors close so
         // a reader learns the fold has ended rather than waiting out a deadline for it.
