@@ -346,6 +346,15 @@ struct EngineBanner: View {
         case .absent, .failed:
             if let f = model.fault {
                 FailureCard(fault: f)
+            } else if model.launchPhase == .absent {
+                HStack {
+                    Image(systemName: "doc.text.magnifyingglass").foregroundStyle(.secondary)
+                    Text(model.attachProblem
+                         ?? "No character log is attached - pick one, or point Preferences → Game at your EverQuest folder.")
+                        .font(.callout)
+                    Spacer()
+                }
+                .padding(.horizontal, 14).padding(.vertical, 6).background(.bar)
             }
         case .starting:
             HStack { ProgressView().controlSize(.small); Text("Starting the data engine…").font(.callout) ; Spacer() }

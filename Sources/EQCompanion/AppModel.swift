@@ -47,6 +47,8 @@ final class AppModel {
     var health: HealthReading?
     var launchPhase: LaunchPhase = .starting
     var fault: EngineFault?
+    /// Why the last attach did not take, shown with the "No log" state. nil when it did.
+    var attachProblem: String?
     var debugLog: [String] = []
 
     // MARK: - Install and characters
@@ -217,10 +219,17 @@ final class AppModel {
     }
 
     func attachSelected() async {
-        guard client.isReady, let path = selectedLogPath,
-              let c = characters.first(where: { $0.logPath == path }) else { return }
+        guard client.isReady else { return }
+        guard let path = selectedLogPath,
+              let c = characters.first(where: { $0.logPath == path }) else {
+            // No install, or an install with no character logs: say so rather than spin on
+            // "Starting" forever.
+            if attached == nil { launchPhase = .absent }
+            return
+        }
         if attached?.logPath == path { return }
         do {
+            attachProblem = nil
             launchPhase = .folding
             foldRing = FoldRing()
             let r = try await client.request(Op.sessionAttach,
@@ -234,10 +243,21 @@ final class AppModel {
                 await pushBuffTrust()
                 await pushComboCorrections()
                 note("attached \(c.label) (epoch \(r["epoch"].int ?? -1))")
+            } else {
+                attachFailed(c, "the engine declined the attach")
             }
         } catch {
-            note("session.attach failed: \(error)")
+            attachFailed(c, "\(error)")
         }
+    }
+
+    /// An attach that did not take leaves no fold running for this character, so the phase says
+    /// "No log" with the reason instead of "Catching up" with a bar that never moves.
+    private func attachFailed(_ c: CharacterRef, _ why: String) {
+        note("session.attach failed: \(why)")
+        attached = nil
+        attachProblem = "Could not open \(c.label)'s log: \(why)"
+        launchPhase = .absent
     }
 
     private func progressed(_ p: FoldProgress) {
@@ -284,6 +304,13 @@ final class AppModel {
                                    lastEventTs: r["lastEventTs"].int64,
                                    logMtimeMs: r["logMtimeMs"].int64)
             if health?.status == "live", launchPhase == .folding { launchPhase = .live; AppTiming.mark("Log history replayed") }
+            // Answering again after three misses: the stall was transient (sleep/wake, a backed-up
+            // work queue), so the failure card comes down and the phase follows the engine.
+            if launchPhase == .failed, fault?.kind == .unhealthy {
+                fault = nil
+                launchPhase = health?.status == "live" ? .live : (attached == nil ? .absent : .folding)
+                note("health: answering again")
+            }
         } catch {
             healthMisses += 1
             note("health: \(error) (\(healthMisses))")
