@@ -835,8 +835,9 @@ public enum Ingest {
         }
 
         // Whatever this fold owns gets one last chance to reach the disk, and both doors close so
-        // a reader learns the fold has ended rather than waiting out a deadline for it.
-        func detach() {
+        // a reader learns the fold has ended rather than waiting out a deadline for it. On every way
+        // out from here — a lost turn and a thrown read error alike.
+        defer {
             sink.detach()
             answers.close()
             writes.close()
@@ -879,10 +880,10 @@ public enum Ingest {
             // generation poll, at most one progress frame per cadence, and whatever was asked for
             // while the last megabyte was folding. The order is deliberate — a turn that has lost
             // answers nobody, including a reader that is waiting.
-            if !world.owns(generation) { detach(); return .preempted }
+            if !world.owns(generation) { return .preempted }
             if cadence.due(),
                !world.reportProgress(generation, mark(core, size, seq, sink)) {
-                detach(); return .preempted
+                return .preempted
             }
             answerAsks(answers, sink, serving)
             // A define mid-scan is taken mid-scan and the fold does not restart for it. That is the
@@ -902,7 +903,7 @@ public enum Ingest {
         // bytes this fold actually read.
         serving.cost.scanMs = elapsedMs(since: scanning)
         serving.cost.scanBytes = core.readOffset
-        if !world.reportProgress(generation, landed) { detach(); return .preempted }
+        if !world.reportProgress(generation, landed) { return .preempted }
 
         // The fold lands. The handoff is the scan's end offset → `TailStart.at`: the tail picks up
         // at the end of the last complete line the scan folded, so bytes appended during the scan
@@ -917,7 +918,7 @@ public enum Ingest {
         let ticking = Ticking()
         ticking.beat(sink)
         if !world.reportFoldLanded(generation, landed, SinkRows(sink), landedAt, serving.meter) {
-            detach(); return .preempted
+            return .preempted
         }
 
         // The checkpoint saver. At the landing and then every `checkpointEvery` of live tailing;
@@ -953,7 +954,7 @@ public enum Ingest {
         // know about at all.
         var announced = seq
         while true {
-            if !world.owns(generation) { detach(); return .preempted }
+            if !world.owns(generation) { return .preempted }
             let before = seq
             var pollError: Error?
             do {
@@ -1003,7 +1004,7 @@ public enum Ingest {
                                         // indistinguishable from the last frame of a scan.
                                         live: tailLive)
                 announced = seq
-                if !world.reportProgress(generation, advanced) { detach(); return .preempted }
+                if !world.reportProgress(generation, advanced) { return .preempted }
             }
             answerAsks(answers, sink, serving)
             answerWrites(writes, sink)
@@ -1012,12 +1013,12 @@ public enum Ingest {
             // sounds, and folding them would silence one. Every fire the drain produced goes out
             // now, in fold order.
             for fire in sink.takeFires() {
-                if !world.reportFire(generation, fire) { detach(); return .preempted }
+                if !world.reportFire(generation, fire) { return .preempted }
             }
             // The con cards, on the fires' terms and for the fires' reason: a `/con` is a thing
             // that happened rather than state, and coalescing two cards would drop the first.
             for card in sink.takeConCards() {
-                if !world.reportConCard(generation, card) { detach(); return .preempted }
+                if !world.reportConCard(generation, card) { return .preempted }
             }
             // …and the names the fold's probes could not answer, beside the fires and for the same
             // reason. Not generation-gated: a miss describes the process's corpus rather than this
@@ -1026,7 +1027,7 @@ public enum Ingest {
             // The views, at their own cadence. Everything the drain above folded collapses into at
             // most one frame per subscription per `Views.serveEvery` — rule 2 of the diff protocol,
             // held as a cadence rather than as a per-event push.
-            if !serving.tick(world, generation, sink) { detach(); return .preempted }
+            if !serving.tick(world, generation, sink) { return .preempted }
             nap(tailDefaultPollInterval, world, generation, answers, writes, sink, serving)
         }
     }
