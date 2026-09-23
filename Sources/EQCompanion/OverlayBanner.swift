@@ -77,6 +77,9 @@ final class AlertBanner {
             guard Prefs.shared.bannerEnabled else { continue }
             lines.append(BannerLine(id: f.id, text: text))
         }
+        // Only ids still in `model.fires` can come round again, and that list is capped; the rest
+        // would make `seen` grow by one per alert for the life of the process.
+        if seen.count > model.fires.count { seen.formIntersection(model.fires.map(\.id)) }
         trim()
         if !lines.isEmpty { arm() }
     }
