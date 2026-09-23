@@ -176,9 +176,11 @@ private let RAIN_SPELLS = [
 /// True when a spell delivers its damage in waves from one cast. Rank-blind, because a damage line
 /// prints the rank-less name while the cast line may carry the numeral.
 public func isRainSpell(_ spell: String) -> Bool {
-    let key = Names.spellCanonKey(spell)
-    return RAIN_SPELLS.contains { Names.spellCanonKey($0) == key }
+    RAIN_KEYS.contains(Names.spellCanonKey(spell))
 }
+
+/// `RAIN_SPELLS` folded once: the membership test runs on every spell-damage line.
+private let RAIN_KEYS = Set(RAIN_SPELLS.map(Names.spellCanonKey))
 
 /// Damage lines eligible for cast-less detection: spell effects that are not rain waves.
 public func procEligibleDamage(_ dtype: String, _ skill: String) -> Bool {
@@ -222,8 +224,11 @@ public let SELF_LANDING_PROCS: [SelfLandingProcDef] = [
 public func selfLandingProcIn(_ candidates: [String]) -> SelfLandingProcDef? {
     if candidates.count != 1 { return nil }
     let key = Names.spellCanonKey(candidates[0])
-    return SELF_LANDING_PROCS.first { Names.spellCanonKey($0.name) == key }
+    return SELF_LANDING_PROC_KEYS.first { $0.key == key }?.def
 }
+
+/// `SELF_LANDING_PROCS` with each key folded once, in registry order.
+private let SELF_LANDING_PROC_KEYS = SELF_LANDING_PROCS.map { (key: Names.spellCanonKey($0.name), def: $0) }
 
 /// Everything the heal side of the inference needs to judge one line.
 public struct HealProcInput {
