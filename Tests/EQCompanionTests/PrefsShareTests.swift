@@ -68,6 +68,17 @@ final class PrefsShareTests: XCTestCase {
     }
 
     /// A body that does not match its `sum` is REJECTED rather than partially applied.
+    func testAnInflateBombStopsAtTheLimitAndReadsAsTooLong() {
+        // 8 MB of one byte deflates to a few kB: a paste that fits the input cap and would inflate
+        // far past the JSON cap. The inflate stops just over the limit rather than finishing.
+        let bomb = ShareCodec.deflateRaw(Data(repeating: 0x20, count: 8 << 20))
+        XCTAssertLessThan(bomb.count, 64 * 1024)
+        let out = ShareCodec.inflateRaw(bomb, limit: ShareCodec.Limits.maxJsonChars)
+        XCTAssertNotNil(out)
+        XCTAssertGreaterThan(out?.count ?? 0, ShareCodec.Limits.maxJsonChars)
+        XCTAssertLessThan(out?.count ?? .max, ShareCodec.Limits.maxJsonChars + (2 << 20))
+    }
+
     func testDecodeRefusesABadChecksum() {
         var env = ShareCodec.envelope(kind: .settings, body: ["alerts": .array([])], appVersion: "1.0.0")
         var o = env.object ?? [:]

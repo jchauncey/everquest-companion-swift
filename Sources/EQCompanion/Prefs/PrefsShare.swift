@@ -200,7 +200,7 @@ enum ShareCodec {
         }
         if payload.isEmpty { return .failure(.corrupt) }
 
-        guard let raw = fromBase64url(payload), let inflated = inflateRaw(raw) else {
+        guard let raw = fromBase64url(payload), let inflated = inflateRaw(raw, limit: Limits.maxJsonChars) else {
             return .failure(.corrupt)
         }
         if inflated.count > Limits.maxJsonChars { return .failure(.tooLong) }
@@ -253,15 +253,21 @@ enum ShareCodec {
 
     /// The inverse. `nil` for anything that is not a deflate stream — the decoder calls that
     /// "damaged", which is what a truncated paste actually is.
-    static func inflateRaw(_ data: Data) -> Data? {
-        let out = transform(data, operation: COMPRESSION_STREAM_DECODE, hint: max(1024, data.count * 8))
+    ///
+    /// `limit` stops the inflate once the output passes it: the caller refuses anything that long
+    /// anyway, and a small paste can inflate to tens of megabytes. The result is then just over
+    /// `limit`, which is how the caller tells "too long" from "damaged".
+    static func inflateRaw(_ data: Data, limit: Int? = nil) -> Data? {
+        let out = transform(data, operation: COMPRESSION_STREAM_DECODE, hint: max(1024, data.count * 8),
+                            limit: limit)
         return out.isEmpty ? nil : out
     }
 
     /// One pass of the streaming API, growing the destination until the stream ends. Written
     /// against `compression_stream` rather than the one-shot buffer call because the inflated size
     /// is unknown up front and a short buffer would silently truncate.
-    private static func transform(_ data: Data, operation: compression_stream_operation, hint: Int) -> Data {
+    private static func transform(_ data: Data, operation: compression_stream_operation, hint: Int,
+                                  limit: Int? = nil) -> Data {
         guard !data.isEmpty else { return Data() }
         var stream = compression_stream(dst_ptr: UnsafeMutablePointer<UInt8>(bitPattern: 1)!, dst_size: 0,
                                         src_ptr: UnsafePointer<UInt8>(bitPattern: 1)!, src_size: 0,
@@ -286,6 +292,7 @@ enum ShareCodec {
                 let status = compression_stream_process(&stream, Int32(COMPRESSION_STREAM_FINALIZE.rawValue))
                 let produced = bufferSize - stream.dst_size
                 if produced > 0 { out.append(buffer, count: produced) }
+                if let limit, out.count > limit { return true }
                 if status == COMPRESSION_STATUS_END { return true }
                 if status != COMPRESSION_STATUS_OK { return false }
             }
