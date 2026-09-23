@@ -22,7 +22,8 @@ let package = Package(
                                          .product(name: "EQCompanionCore", package: "everquest-companion-swift")],
                           path: "Sources/EQTool", swiftSettings: v5),
         .executableTarget(name: "EQBench",
-                          dependencies: [.product(name: "EQLog", package: "everquest-companion-swift")],
+                          dependencies: [.product(name: "EQLog", package: "everquest-companion-swift"),
+                                         .product(name: "EQEngine", package: "everquest-companion-swift")],
                           path: "Sources/EQBench", swiftSettings: v5)
     ]
 )
