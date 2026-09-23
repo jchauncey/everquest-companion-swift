@@ -20,14 +20,8 @@
 // `slash` may be two hands rather than a double attack and no line distinguishes them. Reuse-timer
 // skills have no such confound — one timer, one hand — and that split is `roundConfidence`.
 import Foundation
+import EQLog
 import EQCompanionCore
-
-/// Rust's `i64::div_euclid`, which Swift's `/` (truncating toward zero) is not for negatives.
-func roundsDivEuclid(_ a: Int64, _ b: Int64) -> Int64 {
-    let q = a / b
-    if a % b < 0 { return b > 0 ? q - 1 : q + 1 }
-    return q
-}
 
 /// How many swing buckets a lane reports: 1, 2, 3, and a 4+ tail.
 public let ROUND_BUCKETS = 4
@@ -211,7 +205,7 @@ public struct RoundAccum {
             excluded[why.slot] += 1
             return
         }
-        let sec = roundsDivEuclid(rec.ts, 1_000)
+        let sec = Rust.divEuclid(rec.ts, 1_000)
         if sec != openSecond {
             flush()
             openSecond = sec
@@ -254,16 +248,6 @@ public struct RoundAccum {
     /// True when nothing has ever been folded (no lanes, no pending). `excluded` is deliberately not
     /// consulted: an excluded swing is not a round.
     public var isEmpty: Bool { lanes.isEmpty && pending.isEmpty }
-}
-
-/// Rust's `slice::sort_by` is STABLE and Swift's `sort` is not; several ranked lists in the view
-/// builders rely on equal keys keeping the order the aggregate recorded them in.
-func stableSorted<T>(_ a: [T], _ less: (T, T) -> Bool) -> [T] {
-    a.enumerated().sorted { x, y in
-        if less(x.element, y.element) { return true }
-        if less(y.element, x.element) { return false }
-        return x.offset < y.offset
-    }.map(\.element)
 }
 
 // MARK: - Checkpoint

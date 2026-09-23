@@ -357,7 +357,7 @@ private func poisonLanes(_ spec: ProcsViewSpec, _ you: SourceStat?, _ b: RateBas
         if s.ambiguous { l.ambiguous = true }
         out.append(l)
     }
-    return stableSorted(out) { x, y in
+    return Rust.stableSorted(out) { x, y in
         if x.count != y.count { return x.count > y.count }
         return Collate.less(x.name, y.name)
     }
@@ -382,7 +382,7 @@ private func spellLanes(_ spec: ProcsViewSpec, _ b: RateBase, _ covered: Set<Str
             resisted: resistedBy(you, [key]),
             linked: linksFor(l, states, spec.agg.procs.swingsByState, swings)), b))
     }
-    return stableSorted(out) { x, y in
+    return Rust.stableSorted(out) { x, y in
         if x.count != y.count { return x.count > y.count }
         return Collate.less(x.name, y.name)
     }
@@ -525,20 +525,20 @@ private func overallRate(_ lanes: [ProcLaneView], _ b: RateBase) -> ProcRateView
 /// reports no `slowLandMs` and no coats rather than measuring from an arbitrary zero.
 public func buildProcsView(_ spec: ProcsViewSpec) -> ProcsView {
     let p = spec.agg.procs
-    let strikes = stableSorted(p.strikes.values.map {
+    let strikes = Rust.stableSorted(p.strikes.values.map {
         ProcLane(name: $0.name, count: $0.count, total: nil, ambiguous: $0.ambiguous ? true : nil)
     }) { a, b in
         if a.count != b.count { return a.count > b.count }
         return Collate.less(a.name, b.name)
     }
-    let poisonDamage = stableSorted(p.poisonDamage.values.map {
+    let poisonDamage = Rust.stableSorted(p.poisonDamage.values.map {
         ProcLane(name: $0.name, count: $0.count, total: $0.total, ambiguous: nil)
     }) { a, b in
         let ta = a.total ?? 0, tb = b.total ?? 0
         if ta != tb { return ta > tb }
         return Collate.less(a.name, b.name)
     }
-    let dispels = stableSorted(p.dispels.values.map {
+    let dispels = Rust.stableSorted(p.dispels.values.map {
         ProcLane(name: $0.name, count: $0.count, total: nil, ambiguous: true)
     }) { a, b in
         if a.count != b.count { return a.count > b.count }

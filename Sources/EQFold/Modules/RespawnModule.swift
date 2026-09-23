@@ -217,19 +217,6 @@ private func isCountedKill(_ ev: Event) -> Bool {
     return true
 }
 
-/// Rust's `str::cmp` is byte-wise over UTF-8; Swift's `<` is not. Ordering is a claim in a snapshot.
-private func respawnLexLess(_ a: String, _ b: String) -> Bool {
-    var x = a.utf8.makeIterator(), y = b.utf8.makeIterator()
-    while true {
-        switch (x.next(), y.next()) {
-        case (nil, nil): return false
-        case (nil, _): return true
-        case (_, nil): return false
-        case (let p?, let q?): if p != q { return p < q }
-        }
-    }
-}
-
 public final class RespawnModule: EqModule {
     public let id = "respawn"
 
@@ -424,7 +411,7 @@ public final class RespawnModule: EqModule {
             if stalea != staleb { return !stalea }
             let la = lefta ?? Int64.max, lb = leftb ?? Int64.max
             if la != lb { return la < lb }
-            if a.row.display != b.row.display { return respawnLexLess(a.row.display, b.row.display) }
+            if a.row.display != b.row.display { return Rust.bytesLess(a.row.display, b.row.display) }
             return a.i < b.i
         }.map(\.row)
     }

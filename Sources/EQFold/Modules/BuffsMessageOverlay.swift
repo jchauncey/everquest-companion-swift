@@ -379,7 +379,7 @@ private func addCounts(_ rec: MessageRecord, _ spells: [(String, Int64)]) {
 /// `new Date(ms).toISOString()` — UTC, always three fractional digits, always the `Z` suffix.
 /// The civil-from-days algorithm is Howard Hinnant's; days are floored rather than truncated.
 public func isoUTC(_ ms: Int64) -> String {
-    let days = divEuclid(ms, 86_400_000)
+    let days = Rust.divEuclid(ms, 86_400_000)
     let rem = ms - days * 86_400_000
     let (y, m, d) = civilFromDays(days)
     let h = rem / 3_600_000
@@ -389,17 +389,10 @@ public func isoUTC(_ ms: Int64) -> String {
     return String(format: "%04lld-%02lld-%02lldT%02lld:%02lld:%02lld.%03lldZ", y, m, d, h, min, s, milli)
 }
 
-/// `i64::div_euclid` — a floored division, so a pre-epoch instant is still correct.
-private func divEuclid(_ a: Int64, _ b: Int64) -> Int64 {
-    let q = a / b
-    if a % b < 0 { return b > 0 ? q - 1 : q + 1 }
-    return q
-}
-
 /// Days since 1970-01-01 → (year, month, day), Gregorian.
 private func civilFromDays(_ z0: Int64) -> (Int64, Int64, Int64) {
     let z = z0 + 719_468
-    let era = divEuclid(z, 146_097)
+    let era = Rust.divEuclid(z, 146_097)
     let doe = z - era * 146_097
     let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365
     let y = yoe + era * 400

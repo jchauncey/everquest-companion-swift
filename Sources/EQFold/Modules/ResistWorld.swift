@@ -217,7 +217,7 @@ public final class DebuffWindows {
         }
         for key in dead { m.remove(key) }
         byMob[mobKey] = m
-        live.sort(by: rustLess)
+        live.sort(by: Rust.bytesLess)
         return live.joined(separator: "|")
     }
 

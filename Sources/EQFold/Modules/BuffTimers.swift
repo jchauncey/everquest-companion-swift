@@ -647,7 +647,7 @@ public final class BuffTimersModule: EqModule {
                 caster: h.caster != BuffsShapes.selfCaster ? h.caster : nil))
         }
         // Rust's `sort_by_key`, which is stable.
-        return rowsStableSorted(out) { $0.startedTs == $1.startedTs ? 0 : ($0.startedTs < $1.startedTs ? -1 : 1) }
+        return Rust.stableSorted(out, cmp: { $0.startedTs == $1.startedTs ? 0 : ($0.startedTs < $1.startedTs ? -1 : 1) })
     }
 
     /// The recorded ENDS — the half of the projection's dedupe the buffs model cannot see.
@@ -804,5 +804,5 @@ private func ccCandidates(_ ev: Event) -> [Candidate] {
 
 /// Candidate names, ordered by `BuffLanding.compareNames`.
 private func sortedNames(_ cands: [Candidate]) -> [String] {
-    rowsStableSorted(cands.map(\.name)) { BuffLanding.compareNames($0, $1) }
+    Rust.stableSorted(cands.map(\.name), cmp: { BuffLanding.compareNames($0, $1) })
 }

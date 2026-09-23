@@ -16,6 +16,7 @@
 // `startAlso` — except that a `/who` row never loses to a narrower inferred window, which is the
 // explicit precedence in `resolveGroup`.
 import Foundation
+import EQLog
 import EQCompanionCore
 
 /// The tertiary slot unlocks at level 10 — a PRIOR, overridden by a `/who` row's own arity.
@@ -226,7 +227,7 @@ func exclusiveSpans(_ observations: [ClassObservation]) -> [Span] {
     for o in observations {
         if o.candidates.count != 1 { continue }
         let cls = o.candidates[0]
-        let bucket = comboDivEuclid(o.ts, comboHourMs)
+        let bucket = Rust.divEuclid(o.ts, comboHourMs)
         if let acc = spans[cls] {
             acc.span.first = min(acc.span.first, o.ts)
             acc.span.last = max(acc.span.last, o.ts)
@@ -276,7 +277,7 @@ public func evidenceShiftBoundaries(_ observations: [ClassObservation], _ expect
         queue.append(window.filter { $0.ts <= lo })
         queue.append(window.filter { $0.ts >= hi })
     }
-    return comboStableSorted(out) { $0.at < $1.at }
+    return Rust.stableSorted(out) { $0.at < $1.at }
 }
 
 /// Windows that OVERLAP describe the same swap, and the narrowest of them is the answer — so an
@@ -387,14 +388,14 @@ func resolveGroup(_ group: [Boundary]) -> [Boundary] {
         kept[h].also = also
     }
     kept.append(contentsOf: mergeBoundaries(undated))
-    return comboStableSorted(kept) { $0.at < $1.at }
+    return Rust.stableSorted(kept) { $0.at < $1.at }
 }
 
 /// Collapse overlapping candidates into one boundary each, in time order. Windows that merely touch
 /// (one ends exactly where the next begins) are separate swaps, not one. A `/who` cut is never
 /// collapsed away — see `resolveGroup`.
 public func mergeBoundaries(_ candidates: [Boundary]) -> [Boundary] {
-    let sorted = comboStableSorted(candidates) { a, b in a.lo != b.lo ? a.lo < b.lo : a.hi < b.hi }
+    let sorted = Rust.stableSorted(candidates) { a, b in a.lo != b.lo ? a.lo < b.lo : a.hi < b.hi }
     var out: [Boundary] = []
     var group: [Boundary] = []
     var groupHi = Int64.min
@@ -407,7 +408,7 @@ public func mergeBoundaries(_ candidates: [Boundary]) -> [Boundary] {
         group.append(b)
     }
     if !group.isEmpty { out.append(contentsOf: resolveGroup(group)) }
-    return comboStableSorted(out) { $0.at < $1.at }
+    return Rust.stableSorted(out) { $0.at < $1.at }
 }
 
 /// Split observations at hard cut points so shift detection never reasons across a swap the log
@@ -618,7 +619,7 @@ func collapse(_ intervals: [ComboInterval]) -> [ComboInterval] {
 /// a user correction, retroactively re-labels the past, and patching intervals in place would leave
 /// a stale id pointing at a span that no longer exists. Ids are therefore snapshot-scoped.
 public func buildIntervals(_ raw: IntervalInput) -> [ComboInterval] {
-    let observations = comboStableSorted(raw.observations) { $0.seq < $1.seq }
+    let observations = Rust.stableSorted(raw.observations) { $0.seq < $1.seq }
     if observations.isEmpty { return [] }
     let input = IntervalInput(observations: observations, whoRows: raw.whoRows,
                               levels: raw.levels, corrections: raw.corrections)
@@ -655,7 +656,7 @@ public func buildIntervals(_ raw: IntervalInput) -> [ComboInterval] {
     // contradictory rows.
     var boundaries = placed
     boundaries.append(contentsOf: whoBoundaries(input.whoRows, placed))
-    boundaries = comboStableSorted(boundaries) { $0.at < $1.at }
+    boundaries = Rust.stableSorted(boundaries) { $0.at < $1.at }
     boundaries = boundaries.filter { $0.at > observations[0].ts }
     let slices = sliceTimeline(observations, boundaries, observations[0].ts)
     let built = slices.enumerated().map { toInterval($0.element, input, $0.offset) }

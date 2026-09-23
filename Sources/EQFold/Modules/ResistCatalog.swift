@@ -187,7 +187,7 @@ public enum ResistCatalog {
                 best.append((cls, level))
             }
         }
-        best.sort { a, b in a.1 != b.1 ? a.1 < b.1 : rustLess(a.0, b.0) }
+        best.sort { a, b in a.1 != b.1 ? a.1 < b.1 : Rust.bytesLess(a.0, b.0) }
         return best
     }
 

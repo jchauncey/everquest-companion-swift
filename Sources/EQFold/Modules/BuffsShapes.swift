@@ -199,17 +199,5 @@ public enum BuffsShapes {
 
     /// Codepoint order over two strings — Rust's natural `&str` `Ord`, which is UTF-8 bytewise and
     /// therefore exactly codepoint order. Never `localeCompare`.
-    public static func codepointLess(_ a: String, _ b: String) -> Bool {
-        var i = a.unicodeScalars.makeIterator()
-        var j = b.unicodeScalars.makeIterator()
-        while true {
-            switch (i.next(), j.next()) {
-            case (nil, nil): return false
-            case (nil, _): return true
-            case (_, nil): return false
-            case (let x?, let y?):
-                if x.value != y.value { return x.value < y.value }
-            }
-        }
-    }
+    public static func codepointLess(_ a: String, _ b: String) -> Bool { Rust.bytesLess(a, b) }
 }

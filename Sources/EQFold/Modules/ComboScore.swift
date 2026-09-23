@@ -20,26 +20,10 @@
 // the published `because` list, and the residual clusters are ranked by a comparator that is NOT
 // total, so the map's own order breaks the tie as JS's stable sort over a `Map` does.
 import Foundation
+import EQLog
 import EQCompanionCore
 
 let comboHourMs: Int64 = 3_600_000
-
-/// `i64::div_euclid` — floor division, so a pre-epoch timestamp buckets the same way Rust does.
-func comboDivEuclid(_ a: Int64, _ b: Int64) -> Int64 {
-    let q = a / b
-    if a % b < 0 { return b > 0 ? q - 1 : q + 1 }
-    return q
-}
-
-/// A stable sort, because several of these comparators are NOT total and both JS's `sort` and Rust's
-/// `sort_by` keep insertion order on a tie.
-func comboStableSorted<T>(_ xs: [T], _ less: (T, T) -> Bool) -> [T] {
-    xs.enumerated().sorted { a, b in
-        if less(a.element, b.element) { return true }
-        if less(b.element, a.element) { return false }
-        return a.offset < b.offset
-    }.map(\.element)
-}
 
 /// How many distinct hourly buckets an EXCLUSIVE label must span before it counts as exclusivity.
 ///
@@ -105,12 +89,12 @@ func foldLabels(_ observations: [ClassObservation]) -> [LabelFold] {
         if o.source == "who" { continue } // /who OVERRIDES, it never scores (§ 4.4)
         let key = "\(o.source):\(o.label)"
         if let seen = byKey[key] {
-            seen.buckets.insert(comboDivEuclid(o.ts, comboHourMs))
+            seen.buckets.insert(Rust.divEuclid(o.ts, comboHourMs))
             continue
         }
         let display = "\(o.source == "skillUp" ? "skill" : o.source):\(o.label)"
         byKey.insert(key, LabelFold(display: display, candidates: o.candidates, weight: o.weight,
-                                    buckets: [comboDivEuclid(o.ts, comboHourMs)]))
+                                    buckets: [Rust.divEuclid(o.ts, comboHourMs)]))
     }
     return byKey.values
 }
@@ -159,7 +143,7 @@ func byStrength(_ a: ClassScore, _ b: ClassScore) -> Bool {
 /// hourly buckets, strongest first, capped at `expectedSlots`.
 public func admitted(_ scores: JSMap<ClassScore>, _ expectedSlots: Int) -> [ClassScore] {
     var out = scores.values.filter { $0.exclusive >= 1 && $0.sustain >= 2 }
-    out = comboStableSorted(out, byStrength)
+    out = Rust.stableSorted(out, byStrength)
     if out.count > expectedSlots { out.removeSubrange(expectedSlots...) }
     return out
 }
@@ -214,7 +198,7 @@ func clusterResidual(_ folds: [LabelFold], _ admittedSet: Set<ClassAbbr>) -> [Cl
         groups.insert(key, Cluster(candidates: fold.candidates, support: share, labels: [fold.display]))
     }
     // Not a total order, and both JS's sort and `sort_by` are stable, so ties keep insertion order.
-    let ranked = comboStableSorted(groups.values) { $0.support > $1.support }
+    let ranked = Rust.stableSorted(groups.values) { $0.support > $1.support }
     // An index walk, because the TS closure reads and writes the same array it is filtering.
     var keep = [Bool](repeating: true, count: ranked.count)
     for i in 0..<ranked.count {

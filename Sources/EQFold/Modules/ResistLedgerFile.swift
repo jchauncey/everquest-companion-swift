@@ -246,7 +246,7 @@ public enum ResistHistogram {
                 case (.none, .none): break
                 }
             }
-            return rustLess(a, b)
+            return Rust.bytesLess(a, b)
         }
         out.append("{")
         var first = true

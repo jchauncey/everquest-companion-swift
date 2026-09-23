@@ -12,12 +12,8 @@
 // is ported rather than approximated (the week belongs to the year containing its Thursday), because
 // the string is a key compared across builds.
 import Foundation
+import EQLog
 import EQCompanionCore
-
-/// Rust's `str` ordering is a byte compare; Swift's `<` is not. Every sort the Rust does over keys
-/// that reach a pooling key or a serialized order goes through this.
-@inline(__always)
-func rustLess(_ a: String, _ b: String) -> Bool { a.utf8.lexicographicallyPrecedes(b.utf8) }
 
 public enum ResistCasterKind: String, Equatable, Sendable {
     case selfCast = "self"
@@ -89,18 +85,9 @@ public enum ResistLedger {
     /// 1970-01-01 was a Thursday, so the Monday opening epoch week zero is three days earlier.
     static let epochMonday: Int64 = -3 * 86_400_000
 
-    /// Rust's `i64::div_euclid`, which is what the app's `Math.floor` does; truncation parts company
-    /// with it before 1970.
-    @inline(__always)
-    static func divEuclid(_ a: Int64, _ b: Int64) -> Int64 {
-        var q = a / b
-        if a % b < 0 { q -= b > 0 ? 1 : -1 }
-        return q
-    }
-
     /// Monday 00:00 UTC of the week containing `ts`.
     public static func weekStart(_ ts: Int64) -> Int64 {
-        divEuclid(ts - epochMonday, weekMs) * weekMs + epochMonday
+        Rust.divEuclid(ts - epochMonday, weekMs) * weekMs + epochMonday
     }
 
     /// The ISO-8601 week the instant falls in, as `2026-W33`.
@@ -120,10 +107,10 @@ public enum ResistLedger {
 
     /// The proleptic Gregorian year an epoch instant falls in.
     static func civilYearOf(_ ms: Int64) -> Int64 {
-        let days = divEuclid(ms, dayMs)
+        let days = Rust.divEuclid(ms, dayMs)
         // Howard Hinnant's `civil_from_days`, reduced to the year it answers.
         let z = days + 719_468
-        let era = divEuclid(z, 146_097)
+        let era = Rust.divEuclid(z, 146_097)
         let doe = z - era * 146_097
         let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365
         let y = yoe + era * 400
@@ -135,7 +122,7 @@ public enum ResistLedger {
     /// Howard Hinnant's `days_from_civil`, the inverse of the above.
     static func daysFromCivil(_ y0: Int64, _ m: Int64, _ d: Int64) -> Int64 {
         let y = m <= 2 ? y0 - 1 : y0
-        let era = divEuclid(y, 400)
+        let era = Rust.divEuclid(y, 400)
         let yoe = y - era * 400
         let mp = (m + 9) % 12
         let doy = (153 * mp + 2) / 5 + d - 1
@@ -149,7 +136,7 @@ public enum ResistLedger {
         switch (a, b) {
         case (nil, let b): return b
         case (let a, nil): return a
-        case (.some(let a), .some(let b)): return rustLess(a, b) ? b : a
+        case (.some(let a), .some(let b)): return Rust.bytesLess(a, b) ? b : a
         }
     }
 
@@ -220,7 +207,7 @@ public final class ResistBucket {
     /// The serialization order: sorted by pooling key so a re-run on unchanged input diffs to
     /// nothing. Insertion order is what the fold walks; key order is only what the writer needs.
     public func rowsInKeyOrder() -> [ResistRow] {
-        byKey.pairs.sorted { rustLess($0.0, $1.0) }.map(\.1)
+        byKey.pairs.sorted { Rust.bytesLess($0.0, $1.0) }.map(\.1)
     }
 
     /// Seed one persisted row, filed under its own pooling key — which is what makes a seed
@@ -258,7 +245,7 @@ public final class ResistLedgerStore {
     public func beginSource(_ key: String) { buckets.insert(key, ResistBucket()) }
 
     /// Every source key, ascending: the order the file's `sources` array is written in.
-    public func sourceKeys() -> [String] { buckets.keys.sorted(by: rustLess) }
+    public func sourceKeys() -> [String] { buckets.keys.sorted(by: Rust.bytesLess) }
 
     /// One bucket, read-only. `nil` rather than an empty bucket for a source never held.
     public func bucket(_ key: String) -> ResistBucket? { buckets[key] }

@@ -20,6 +20,7 @@
 // with the damage model's per-lane minimum: a 0-effective (fully overhealed) tick still LANDED a
 // line, so it participates here, unlike a whiff.
 import Foundation
+import EQLog
 import EQCompanionCore
 
 /// Spell-less heal lines get one shared lane.
@@ -279,7 +280,7 @@ public struct HealingView {
 }
 
 private func healLanes(_ s: HealSourceStat) -> [HealSpellView] {
-    let rows = stableSorted(s.bySpell.values) { a, b in
+    let rows = Rust.stableSorted(s.bySpell.values) { a, b in
         if a.total != b.total { return a.total > b.total }
         if a.count != b.count { return a.count > b.count }
         return Collate.less(a.name, b.name)
@@ -303,7 +304,7 @@ private func runeLane(_ m: MitAccum) -> HealSpellView? {
 /// The amount-less heal lanes. Every field that would be a claim about SIZE stays 0, and `min` is
 /// absent rather than zero. `count` is the entire content of the lane, as of the line.
 private func unstatedLanes(_ m: JSMap<Int64>) -> [HealSpellView] {
-    let rows = stableSorted(m.pairs) { a, b in
+    let rows = Rust.stableSorted(m.pairs) { a, b in
         if a.1 != b.1 { return a.1 > b.1 }
         return Collate.less(a.0, b.0)
     }
@@ -316,7 +317,7 @@ private func unstatedLanes(_ m: JSMap<Int64>) -> [HealSpellView] {
 /// One flat ranked list — heals and absorption together, biggest first, each lane keeping its
 /// classification so the two are never confused. Deliberately not grouped into sections.
 private func rankLanes(_ lanes: [HealSpellView]) -> [HealSpellView] {
-    var l = stableSorted(lanes) { a, b in
+    var l = Rust.stableSorted(lanes) { a, b in
         if a.total != b.total { return a.total > b.total }
         if a.count != b.count { return a.count > b.count }
         return Collate.less(a.name, b.name)
@@ -363,7 +364,7 @@ private func toView(_ key: String, _ s: HealSourceStat, _ extraLanes: [HealSpell
 
 /// Sort the final row set and derive the two scope-relative figures (bar fill + rate).
 private func rankRows(_ rows: [HealSourceView], _ durationSec: Double) -> [HealSourceView] {
-    var r = stableSorted(rows) { a, b in
+    var r = Rust.stableSorted(rows) { a, b in
         if a.total != b.total { return a.total > b.total }
         if a.count != b.count { return a.count > b.count }
         return Collate.less(a.name, b.name)

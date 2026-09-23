@@ -75,19 +75,6 @@ private func adoptDisplay(_ current: String?, _ incoming: String) -> String {
     return (lowerInitial(incoming) || !lowerInitial(current)) ? incoming : current
 }
 
-/// Rust's `str::cmp` is byte-wise over UTF-8; Swift's `<` is not. Ordering is a claim in an answer.
-private func considerLexLess(_ a: String, _ b: String) -> Bool {
-    var x = a.utf8.makeIterator(), y = b.utf8.makeIterator()
-    while true {
-        switch (x.next(), y.next()) {
-        case (nil, nil): return false
-        case (nil, _): return true
-        case (_, nil): return false
-        case (let p?, let q?): if p != q { return p < q }
-        }
-    }
-}
-
 /// Every optional field is omitted rather than null because the shape it is checked against was
 /// recorded through `JSON.stringify`, which DROPS an `undefined`: a row conned before any zone line
 /// carries no `zone` at all.
@@ -174,7 +161,7 @@ final class OwnLootIndex: OwnLoot {
         return merged.values.sorted { a, b in
             if a.count != b.count { return a.count > b.count }
             if a.lastTs != b.lastTs { return a.lastTs > b.lastTs }
-            return considerLexLess(a.item, b.item)
+            return Rust.bytesLess(a.item, b.item)
         }
     }
 }

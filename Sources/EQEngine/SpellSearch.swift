@@ -148,21 +148,6 @@ public enum SpellSearch {
         return false
     }
 
-    /// `String`'s Rust `Ord`, which is byte-wise over UTF-8 — not Swift's `<`, which collates. Every
-    /// tiebreak in this file rides on it, and the two orders part company the moment a name carries a
-    /// latin-1 high byte.
-    static func utf8Less(_ a: String, _ b: String) -> Bool {
-        var x = a.utf8.makeIterator(), y = b.utf8.makeIterator()
-        while true {
-            switch (x.next(), y.next()) {
-            case (nil, nil): return false
-            case (nil, _): return true
-            case (_, nil): return false
-            case (let u?, let v?): if u != v { return u < v }
-            }
-        }
-    }
-
     /// Search the client's table.
     ///
     /// The order is total: every sort ends in the canon key, which is unique because it is what the
@@ -214,21 +199,21 @@ public enum SpellSearch {
         switch query.sort {
         // Level descending, then the key ascending — the in-game window's order, made total.
         case .level:
-            matched.sort { a, b in a.0 != b.0 ? a.0 > b.0 : utf8Less(a.1, b.1) }
+            matched.sort { a, b in a.0 != b.0 ? a.0 > b.0 : Rust.bytesLess(a.1, b.1) }
         // Alphabetical by the name a reader sees, then by key: names are not unique across keys, so
         // the second term is load-bearing here too.
         case .name:
             matched.sort { a, b in
                 let x = a.2.name.lowercased(), y = b.2.name.lowercased()
-                return x != y ? utf8Less(x, y) : utf8Less(a.1, b.1)
+                return x != y ? Rust.bytesLess(x, y) : Rust.bytesLess(a.1, b.1)
             }
         }
 
         let total = matched.count
         let window = matched.dropFirst(query.offset).prefix(query.limit).map(\.2)
         return Found(rows: Array(window), total: total,
-                     categories: facets.keys.sorted(by: utf8Less).map {
-                         Facet(name: $0, subcategories: (facets[$0] ?? []).sorted(by: utf8Less))
+                     categories: facets.keys.sorted(by: Rust.bytesLess).map {
+                         Facet(name: $0, subcategories: (facets[$0] ?? []).sorted(by: Rust.bytesLess))
                      })
     }
 

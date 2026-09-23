@@ -292,14 +292,6 @@ func rowsCodePointCompare(_ a: String, _ b: String) -> Int {
     }
 }
 
-/// Rust's `sort_by`, which is stable — and the group order below depends on that.
-func rowsStableSorted<T>(_ xs: [T], _ cmp: (T, T) -> Int) -> [T] {
-    xs.enumerated().sorted { a, b in
-        let c = cmp(a.element, b.element)
-        return c != 0 ? c < 0 : a.offset < b.offset
-    }.map(\.element)
-}
-
 /// The projection: self rows first, then one block per target with that target's rows together,
 /// targets ordered by their soonest row.
 ///
@@ -339,12 +331,12 @@ public func buildTimerRows(active: [JSONValue], holds: [CcHold], ends: [CcEnd]) 
         if byTarget[key] == nil { order.append(key) }
         byTarget[key, default: []].append(row)
     }
-    selfRows = rowsStableSorted(selfRows, compareRows)
+    selfRows = Rust.stableSorted(selfRows, cmp: compareRows)
 
     var groups: [[BuffTimerRow]] = order.compactMap { byTarget.removeValue(forKey: $0) }
-        .map { rowsStableSorted($0, compareRows) }
+        .map { Rust.stableSorted($0, cmp: compareRows) }
     // A STABLE sort over the groups, which is what makes the insertion order above load-bearing.
-    groups = rowsStableSorted(groups) { compareRows($0[0], $1[0]) }
+    groups = Rust.stableSorted(groups, cmp: { compareRows($0[0], $1[0]) })
 
     var out = selfRows
     for g in groups { out.append(contentsOf: g) }
@@ -356,5 +348,5 @@ public func buildTimerRows(active: [JSONValue], holds: [CcHold], ends: [CcEnd]) 
 /// projection back untouched; otherwise the same rows are re-sorted into one flat soonest-first
 /// list, which is what the debuffs window opens on.
 public func orderTimerRows(_ rows: [BuffTimerRow], groupByTarget: Bool) -> [BuffTimerRow] {
-    groupByTarget ? rows : rowsStableSorted(rows, compareRows)
+    groupByTarget ? rows : Rust.stableSorted(rows, cmp: compareRows)
 }

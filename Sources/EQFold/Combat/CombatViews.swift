@@ -13,6 +13,7 @@
 // answerable once every line of the segment is in. That is why this file carries its own row shape
 // rather than reusing `SkillStat`.
 import Foundation
+import EQLog
 import EQCompanionCore
 
 /// The stable UI ordering of the damage taxonomy.
@@ -421,7 +422,7 @@ private func skillView(_ k: SkillRow, _ skMax: Int64) -> SkillView {
 /// Rank per-skill lanes for the drill: damage first. The tiebreak only reorders rows with no damage
 /// at all, where the lane with the most observations is the one worth a slot under the row cap.
 private func rankSkills(_ rows: JSMap<SkillRow>) -> [SkillRow] {
-    stableSorted(rows.values) { a, b in
+    Rust.stableSorted(rows.values) { a, b in
         if a.total != b.total { return a.total > b.total }
         return (a.lands + a.resists) > (b.lands + b.resists)
     }
@@ -435,7 +436,7 @@ private func maxTotal(_ rows: JSMap<SkillRow>) -> Int64 {
 /// breakdown under the same row cap.
 private func categoryViews(_ byCat: JSMap<CatRow>) -> [CategoryView] {
     let catMax = Double(Swift.max(byCat.values.map(\.total).max() ?? 0, 1))
-    let cats = stableSorted(byCat.values) { categoryRank($0.category) < categoryRank($1.category) }
+    let cats = Rust.stableSorted(byCat.values) { categoryRank($0.category) < categoryRank($1.category) }
     return cats.map { c in
         let skMax = maxTotal(c.bySkill)
         let casts = c.hits + c.resists
@@ -493,7 +494,7 @@ private func tallyOf(_ mods: [ModifierTallyView], _ name: String) -> Int64 {
 /// it.
 private func roundStatsView(_ s: SourceStat, _ taken: (Int64, Int64)) -> SourceRoundsView? {
     // Ranked by count desc then name, so the order is stable across snapshots.
-    let modifiers = stableSorted(s.mods.values.map {
+    let modifiers = Rust.stableSorted(s.mods.values.map {
         ModifierTallyView(name: $0.name, count: $0.count, avoided: $0.avoided)
     }) { a, b in
         if a.count != b.count { return a.count > b.count }
@@ -501,7 +502,7 @@ private func roundStatsView(_ s: SourceStat, _ taken: (Int64, Int64)) -> SourceR
     }
     let tallies = s.roundAcc.snapshot()
     if tallies.isEmpty && modifiers.isEmpty { return nil }
-    let lanes = stableSorted(tallies.map { t in
+    let lanes = Rust.stableSorted(tallies.map { t in
         RoundLaneView(verb: t.verb, label: roundLaneLabel(t.verb, t.skill), rounds: t.rounds,
                       buckets: t.buckets, multiRounds: t.multiRounds,
                       multiPct: t.rounds > 0 ? (Double(t.multiRounds) / Double(t.rounds)) * 100.0 : 0.0,
@@ -586,7 +587,7 @@ private func sourceViews(_ map: JSMap<SourceStat>, _ durationSec: Double,
     }
     // Total desc, and stable, so two rows with the same total keep the order the aggregate recorded
     // them in.
-    return stableSorted(out) { $0.total > $1.total }
+    return Rust.stableSorted(out) { $0.total > $1.total }
 }
 
 /// The two categories a weapon swing lands in (a Slay Undead proc rides an ordinary swing).
@@ -681,7 +682,7 @@ private func buildView(_ spec: ViewSpec) -> SegmentView {
     let incoming = sourceViews(agg.inc, durationSec, nil, nil)
     let outTotal = entities.map(\.total).reduce(0, +)
     let inTotal = incoming.map(\.total).reduce(0, +)
-    let incomingHealers = stableSorted(agg.incHeal.values.map {
+    let incomingHealers = Rust.stableSorted(agg.incHeal.values.map {
         HealerView(name: $0.name, total: $0.amount, count: $0.count)
     }) { $0.total > $1.total }
     return SegmentView(

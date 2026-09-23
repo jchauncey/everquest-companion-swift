@@ -44,20 +44,6 @@ public enum SpellDbOverlay {
     /// Minimum observations before a message earns a non-UNKNOWN verdict.
     static let minObservations: Int64 = 2
 
-    /// UTF-8 bytewise `<`, which is Rust's natural `Ord` on `&str`.
-    static func utf8Less(_ a: String, _ b: String) -> Bool {
-        var i = a.utf8.makeIterator(), j = b.utf8.makeIterator()
-        while true {
-            switch (i.next(), j.next()) {
-            case (nil, nil): return false
-            case (nil, _): return true
-            case (_, nil): return false
-            case (.some(let x), .some(let y)):
-                if x != y { return x < y }
-            }
-        }
-    }
-
     /// The landing corrections, as `(message text, spell display, contradicted spell)`. Each text
     /// appears at most once, so the order cannot change what the corrections produce; it is still the
     /// app's sorted order so a reader diffing the two sides sees the same sequence.
@@ -104,9 +90,9 @@ public enum SpellDbOverlay {
         messages.reserveCapacity(order.count)
         for rec in order {
             var spells = rec.bySpell.map { ($0.1, $0.2) }
-            spells = stableSorted(spells) { a, b in
+            spells = Rust.stableSorted(spells) { a, b in
                 if a.1 != b.1 { return b.1 < a.1 }
-                return utf8Less(a.0, b.0)
+                return Rust.bytesLess(a.0, b.0)
             }
             let total = spells.reduce(Int64(0)) { $0 &+ $1.1 }
             let (verdict, conflict) = verdictFor(db, rec, total)
@@ -114,10 +100,10 @@ public enum SpellDbOverlay {
                                   topSpell: spells.first?.0 ?? "", conflictSpell: conflict,
                                   total: total))
         }
-        messages = stableSorted(messages) { a, b in
+        messages = Rust.stableSorted(messages) { a, b in
             if a.verdict.rank != b.verdict.rank { return a.verdict.rank < b.verdict.rank }
             if a.total != b.total { return b.total < a.total }
-            return utf8Less(a.text, b.text)
+            return Rust.bytesLess(a.text, b.text)
         }
 
         // `looksCastOnOther` walks the whole keyed table for every message; the table cannot change
@@ -135,15 +121,6 @@ public enum SpellDbOverlay {
             }
         }
         return out
-    }
-
-    /// Swift's `sort` is not stable; Rust's `sort_by` is.
-    static func stableSorted<T>(_ xs: [T], _ less: (T, T) -> Bool) -> [T] {
-        xs.enumerated().sorted { a, b in
-            if less(a.element, b.element) { return true }
-            if less(b.element, a.element) { return false }
-            return a.offset < b.offset
-        }.map(\.element)
     }
 
     /// Reads the first spell off the unsorted insertion order, which only matters when there is one

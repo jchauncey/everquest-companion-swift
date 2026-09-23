@@ -13,6 +13,7 @@
 // Confounds are declared, never corrected, and the ones this ledger cannot test are declared as
 // untested — an omitted check reads as a passed one.
 import Foundation
+import EQLog
 import EQCompanionCore
 
 /// Below this much active time, `ppmActive` and `ppmWall` are absent.
@@ -134,11 +135,11 @@ public struct WindowAccum {
 
     /// Windows in ascending minute order.
     public func list() -> [ProcWindow] {
-        stableSorted(windows.values) { $0.minute < $1.minute }
+        Rust.stableSorted(windows.values) { $0.minute < $1.minute }
     }
 
     private mutating func ensure(_ ts: Int64, _ active: Set<String>) -> String {
-        let minute = roundsDivEuclid(ts, WINDOW_MS)
+        let minute = Rust.divEuclid(ts, WINDOW_MS)
         let key = String(minute)
         if var w = windows[key] {
             // A state can turn on mid-window; the set is a union over the window, not a snapshot.
@@ -738,7 +739,7 @@ public func buildAttributionReport(_ sessionId: String, _ windows: [ProcWindow],
         return attributeEffect(EffectInput(kind: s.kind, key: s.key, name: s.name,
                                            windows: windows, direct: directFor(lanes, k)))
     }
-    let effects = stableSorted(effects0) { a, b in
+    let effects = Rust.stableSorted(effects0) { a, b in
         let ra = kindRank(a.kind), rb = kindRank(b.kind)
         if ra != rb { return ra < rb }
         return Collate.less(a.name, b.name)
