@@ -8,6 +8,7 @@ import EQCompanionCore
 final class GoldenSnapshotsTests: XCTestCase {
     static let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     static let goldens = repo.appendingPathComponent("Goldens")
+    static let fixtures = repo.appendingPathComponent("Resources/fixtures")
 
     static func fold(_ name: String) throws -> (Fold, JSONValue) {
         let gdir = goldens.appendingPathComponent(name)
@@ -45,7 +46,11 @@ final class GoldenSnapshotsTests: XCTestCase {
 
     func testEveryFixtureFoldsToTheGoldenSnapshots() throws {
         guard FileManager.default.fileExists(atPath: Self.goldens.path) else { throw XCTSkip("no Goldens/") }
-        let names = try FileManager.default.contentsOfDirectory(atPath: Self.goldens.path).filter { !$0.hasPrefix("_") && !$0.hasPrefix(".") }.sorted()
+        // The committed fixtures drive it: a fixture with no golden throws out of `fold` rather than
+        // being skipped because `Goldens/` never listed it.
+        let names = try FileManager.default.contentsOfDirectory(atPath: Self.fixtures.path)
+            .filter { $0.hasSuffix(".log") }.map { String($0.dropLast(4)) }.sorted()
+        XCTAssertFalse(names.isEmpty, "no fixtures found")
         var perModule: [String: (Int, Int)] = [:]
         var firstDiff: [String: String] = [:]
         for n in names {

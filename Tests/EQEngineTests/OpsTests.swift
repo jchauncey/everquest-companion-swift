@@ -487,10 +487,13 @@ final class OpsTests: XCTestCase {
         XCTAssertEqual(TimeZone.current.identifier, "America/Los_Angeles",
                        "the oracle needs the recorder's zone")
 
-        let names = try FileManager.default.contentsOfDirectory(atPath: Self.goldens.path)
-            .filter { !$0.hasPrefix("_") && !$0.hasPrefix(".") }
-            .filter { FileManager.default.fileExists(atPath: Self.goldens.appendingPathComponent("\($0)/ops.json").path) }
-            .sorted()
+        // Every committed fixture must have a recording: one without is a failure, not a fixture
+        // quietly left out of the oracle.
+        let names = try FileManager.default.contentsOfDirectory(atPath: Self.fixtures.path)
+            .filter { $0.hasSuffix(".log") }.map { String($0.dropLast(4)) }.sorted()
+        for n in names where !FileManager.default.fileExists(atPath: Self.goldens.appendingPathComponent("\(n)/ops.json").path) {
+            XCTFail("\(n): no Goldens/\(n)/ops.json — re-run scripts/gen-goldens.sh")
+        }
         // A subset is honest when the whole set is slow: `EQOPS_FIXTURES` names how many to run and
         // `EQOPS_ONLY` names a substring of the ones to keep.
         let env = ProcessInfo.processInfo.environment

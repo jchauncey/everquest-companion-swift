@@ -28,6 +28,7 @@ final class KnowledgeTests: XCTestCase {
     static let repo = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     static let goldens = repo.appendingPathComponent("Goldens")
+    static let fixtureDir = repo.appendingPathComponent("Resources/fixtures")
 
     /// One corpus for the whole suite: the overlay stays empty and the miss ledger is nobody's
     /// business here, so the answers are the same corpus's either way — and items.json is parsed
@@ -40,11 +41,11 @@ final class KnowledgeTests: XCTestCase {
         ("mithril", nil, 5), ("ghoul", "mob", 5), ("  ", nil, nil), ("spirit", "spell", 3)
     ]
 
+    /// The committed fixtures. A fixture with no `ops.json` throws out of `ops(_:)` rather than
+    /// being skipped because `Goldens/` never listed it.
     static func fixtures() throws -> [String] {
-        try FileManager.default.contentsOfDirectory(atPath: goldens.path)
-            .filter { !$0.hasPrefix("_") && !$0.hasPrefix(".") }
-            .filter { FileManager.default.fileExists(atPath: goldens.appendingPathComponent("\($0)/ops.json").path) }
-            .sorted()
+        try FileManager.default.contentsOfDirectory(atPath: fixtureDir.path)
+            .filter { $0.hasSuffix(".log") }.map { String($0.dropLast(4)) }.sorted()
     }
 
     static func ops(_ fixture: String) throws -> JSONValue {

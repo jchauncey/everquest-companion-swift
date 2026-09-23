@@ -41,13 +41,22 @@ final class GoldenEventsTests: XCTestCase {
     func testEveryFixtureIsByteIdentical() throws {
         let fm = FileManager.default
         guard fm.fileExists(atPath: Self.goldens.path) else { throw XCTSkip("no Goldens/ — run scripts/gen-goldens.sh") }
-        let names = try fm.contentsOfDirectory(atPath: Self.goldens.path).filter { !$0.hasPrefix("_") && !$0.hasPrefix(".") }.sorted()
+        // Driven by the committed fixtures, not by what `Goldens/` happens to hold: a fixture added
+        // without re-cutting the goldens, or a golden that did not load, fails rather than passing
+        // by having nothing to compare.
+        let names = try fm.contentsOfDirectory(atPath: Self.fixtures.path)
+            .filter { $0.hasSuffix(".log") }.map { String($0.dropLast(4)) }.sorted()
         var failures: [String] = []
         var kindTotals: [String: (Int, Int)] = [:]
+        var compared = 0
         for n in names {
             let log = Self.fixtures.appendingPathComponent(n + ".log")
             guard let data = try? Data(contentsOf: log),
-                  let gold = try? String(contentsOf: Self.goldens.appendingPathComponent(n).appendingPathComponent("events.ndjson"), encoding: .utf8) else { continue }
+                  let gold = try? String(contentsOf: Self.goldens.appendingPathComponent(n).appendingPathComponent("events.ndjson"), encoding: .utf8) else {
+                XCTFail("\(n): no readable Goldens/\(n)/events.ndjson — re-run scripts/gen-goldens.sh")
+                continue
+            }
+            compared += 1
             let goldLines = gold.split(separator: "\n").map(String.init)
             let parser = Parser(clock: Clock(identifier: "America/Los_Angeles")!, db: SpellDb.shared(), character: "Primitive")
             var ours: [String] = []
@@ -61,6 +70,7 @@ final class GoldenEventsTests: XCTestCase {
                 kindTotals[k] = e
             }
         }
+        XCTAssertGreaterThan(compared, 0, "no fixture was compared")
         let table = kindTotals.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value.1)/\($0.value.0)" }.joined(separator: ", ")
         XCTAssertTrue(failures.isEmpty, "\(failures.count) fixtures diverge. Per kind: \(table)\nFirst diffs:\n" + failures.prefix(10).joined(separator: "\n"))
     }
