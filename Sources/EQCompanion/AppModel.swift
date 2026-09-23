@@ -242,6 +242,7 @@ final class AppModel {
                 // and knows no class corrections until the app says them again.
                 await pushBuffTrust()
                 await pushComboCorrections()
+                await pushRespawnWatches()
                 note("attached \(c.label) (epoch \(r["epoch"].int ?? -1))")
             } else {
                 attachFailed(c, "the engine declined the attach")

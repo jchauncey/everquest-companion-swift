@@ -51,6 +51,12 @@ final class Prefs {
     /// Other casters whose buffs and debuffs the bars show, besides your own.
     var trustedCasters: [String] { didSet { d.set(trustedCasters, forKey: "prefs.buffs.trustedCasters") } }
 
+    // MARK: Timers
+    /// The respawn watch list as the `respawn.define` payload's `watches` array, JSON-encoded. nil
+    /// until the first watch is set on this install: the list used to live only in the fold's
+    /// checkpoint, and an app that pushed "nothing" for it would wipe what the checkpoint holds.
+    var respawnWatchesJSON: String? { didSet { d.set(respawnWatchesJSON, forKey: "prefs.timers.respawnWatches") } }
+
     // MARK: Cursor ring
     var cursorRingEnabled: Bool { didSet { d.set(cursorRingEnabled, forKey: "prefs.cursorRing.enabled") } }
     var cursorRingSize: Int { didSet { d.set(cursorRingSize, forKey: "prefs.cursorRing.size") } }
@@ -103,6 +109,7 @@ final class Prefs {
         overlaySolidBackground = bool("prefs.overlays.solidBackground", false)
         keepRunningInMenuBar = bool("prefs.window.keepRunningInMenuBar", false)
         trustedCasters = d.stringArray(forKey: "prefs.buffs.trustedCasters") ?? []
+        respawnWatchesJSON = d.string(forKey: "prefs.timers.respawnWatches")
         cursorRingEnabled = bool("prefs.cursorRing.enabled", false)
         cursorRingSize = int("prefs.cursorRing.size", 44)
         cursorRingThickness = int("prefs.cursorRing.thickness", 4)

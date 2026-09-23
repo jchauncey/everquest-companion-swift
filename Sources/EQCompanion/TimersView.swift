@@ -237,13 +237,44 @@ struct TimersView: View {
 
     /// A define is a full-set REPLACE: the whole watch list is pushed on every change, with this
     /// one entry added or taken out and nothing else disturbed.
+    ///
+    /// The list is edited in `Prefs`, synchronously, rather than rebuilt from the last module
+    /// snapshot: a snapshot is stale between two quick clicks and empty during catch-up, and a
+    /// replace built from either drops watches. The snapshot is read only once, to adopt a list
+    /// that predates `Prefs` holding one.
     private func setWatch(key: String, display: String, on: Bool) {
-        var list = respawn.state["prefs"]["watches"].array ?? []
+        var list = RespawnWatches.stored() ?? (respawn.state["prefs"]["watches"].array ?? [])
         list.removeAll { $0["key"].string == key }
         if on { list.append(["key": .string(key), "display": .string(display)]) }
+        RespawnWatches.store(list)
         Task {
-            _ = try? await model.client.request(Op.respawnDefine, ["prefs": ["watches": .array(list)]])
+            await model.pushRespawnWatches()
             await respawn.refresh(model, module: "respawn")
+        }
+    }
+}
+
+/// The respawn watch list's home: `Prefs.respawnWatchesJSON`, pushed as `respawn.define`.
+enum RespawnWatches {
+    static func stored() -> [JSONValue]? {
+        guard let text = Prefs.shared.respawnWatchesJSON, let v = try? JSONValue.parse(text) else { return nil }
+        return v.array
+    }
+
+    static func store(_ list: [JSONValue]) {
+        Prefs.shared.respawnWatchesJSON = JSONValue.array(list).serializedString()
+    }
+}
+
+extension AppModel {
+    /// Push the stored watch list. Called after every edit and after each attach; a list this
+    /// install has never stored is not pushed, so the checkpoint's copy stands.
+    func pushRespawnWatches() async {
+        guard client.isReady, let list = RespawnWatches.stored() else { return }
+        do {
+            _ = try await client.request(Op.respawnDefine, ["prefs": ["watches": .array(list)]])
+        } catch {
+            note("respawn.define failed: \(error)")
         }
     }
 }
