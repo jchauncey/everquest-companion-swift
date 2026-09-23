@@ -11,6 +11,11 @@ import EQCompanionCore
 
 public final class OverlayMining {
     private let miner: MessageOverlayMiner
+    /// `looksLandingMessage` by text. It is a pure function behind an ICU alternation, asked of every
+    /// unclassified line, and those repeat: a log says the same few thousand things. Bounded, and
+    /// dropped whole when full — a memo, not state, so it is no part of a checkpoint.
+    private var landingShaped: [String: Bool] = [:]
+    private static let landingShapedCap = 1 << 16
 
     /// Seeded warm with the committed baseline, so a fresh install benefits from the shipped counts.
     /// Each seed carries its SOURCE KEY: the bucket a log is filed under is what lets `beginSource`
@@ -18,6 +23,14 @@ public final class OverlayMining {
     public init(facts: SpellFacts, seeds: [(String, [OverlaySeedMessage])]) {
         miner = MessageOverlayMiner(facts: facts)
         for (key, counts) in seeds { miner.merge(counts, key) }
+    }
+
+    private func landingShapedMemo(_ t: String) -> Bool {
+        if let known = landingShaped[t] { return known }
+        if landingShaped.count >= Self.landingShapedCap { landingShaped.removeAll(keepingCapacity: true) }
+        let v = looksLandingMessage(t)
+        landingShaped[t] = v
+        return v
     }
 
     /// A log is about to be folded from its first byte — file what it teaches under `key` and drop
@@ -48,7 +61,7 @@ public final class OverlayMining {
             // message. Only flavor-SHAPED lines are fed; the miner's unambiguous-anchor and count
             // rules discard coincidental pairings.
             let t = messageTextOf(ev.raw)
-            if looksLandingMessage(t) {
+            if landingShapedMemo(t) {
                 miner.observeMessage(t, ev.ts, "landing")
                 return true
             }
