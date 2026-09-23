@@ -104,8 +104,12 @@ enum SoundPackError: LocalizedError {
     case unsafe(String)
     case http(String, Int)
     case badManifest(String)
+    case tooLarge(String)
+    case busy(String)
     var errorDescription: String? {
         switch self {
+        case .tooLarge(let url): return "\(URL(string: url)?.lastPathComponent ?? url) is larger than a sound pack may be"
+        case .busy(let name): return "\(name) is already being installed"
         case .unsafe(let what): return "registry pack \(what) is not a valid identifier"
         case .http(let url, let code): return "HTTP \(code) for \(URL(string: url)?.lastPathComponent ?? url)"
         case .badManifest(let why): return why
@@ -276,7 +280,7 @@ final class SoundPackRegistry {
             return
         }
         do {
-            let data = try await Self.get(Self.url)
+            let data = try await Self.get(Self.url, limit: Limits.indexBytes)
             let v = try JSONValue.parse(data)
             let rows = (v["packs"].array ?? []).compactMap(RegistryPack.from)
             let kept = rows.filter(isValidRegistryRow)
@@ -343,8 +347,13 @@ final class SoundPackRegistry {
         guard isSafeSourceRepo(pack.sourceRepo), isSafeSourceRef(pack.sourceRef),
               isSafeSourcePath(pack.sourcePath) else { throw SoundPackError.unsafe("source fields") }
 
+        // One install per pack at a time: first-launch provisioning and a click on Install for the
+        // same pack would otherwise race over the same pack directory.
+        guard await claim(pack.name) else { throw SoundPackError.busy(pack.name) }
+        defer { Task { @MainActor in release(pack.name) } }
+
         let base = pack.rawBase
-        let cespData = try await get("\(base)/openpeon.json")
+        let cespData = try await get("\(base)/openpeon.json", limit: Limits.manifestBytes)
         guard let cesp = try? JSONValue.parse(cespData) else {
             throw SoundPackError.badManifest("openpeon.json is not valid JSON")
         }
@@ -353,25 +362,32 @@ final class SoundPackRegistry {
 
         let fm = FileManager.default
         let packDir = packsDirChild(pack.name)
-        let stage = packsDirChild("\(pack.name).installing")
-        try? fm.removeItem(at: stage)
+        let stage = packsDirChild("\(pack.name).installing-\(UUID().uuidString.prefix(8))")
         try fm.createDirectory(at: stage.appendingPathComponent("sounds"), withIntermediateDirectories: true)
+        var swapped = false
+        defer { if !swapped { try? fm.removeItem(at: stage) } }
 
         var wrote = 0
+        var total = 0
         for (i, s) in sounds.enumerated() {
             await onProgress(.downloading(done: i, total: sounds.count))
             // The path came out of the pack's own manifest; normalize and refuse traversal anyway.
             let rel = s.sourceFile.replacingOccurrences(of: "\\", with: "/")
                 .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             if rel.split(separator: "/").contains("..") { continue }
-            guard let bytes = try? await get("\(base)/\(rel)") else { continue }
-            let dest = stage.appendingPathComponent(s.file)
-            guard dest.path.hasPrefix(stage.path + "/") else { continue }
+            // So is the destination name: a `..` or `.` would resolve out of `sounds/` (or onto
+            // it), so it is skipped rather than written and failed on, which aborted the install.
+            let leaf = (s.file as NSString).lastPathComponent
+            if leaf.isEmpty || leaf == "." || leaf == ".." { continue }
+            let dest = stage.appendingPathComponent(s.file).standardizedFileURL
+            guard dest.path.hasPrefix(stage.standardizedFileURL.path + "/") else { continue }
+            guard let bytes = try? await get("\(base)/\(rel)", limit: Limits.soundBytes) else { continue }
+            total += bytes.count
+            if total > Limits.packBytes { throw SoundPackError.tooLarge(pack.name) }
             try bytes.write(to: dest, options: .atomic)
             wrote += 1
         }
         guard wrote > 0 else {
-            try? fm.removeItem(at: stage)
             throw SoundPackError.badManifest("pack contained no audio files")
         }
 
@@ -395,20 +411,41 @@ final class SoundPackRegistry {
         // Swap the staged dir into place, so a mid-install failure never shadows a good pack.
         try? fm.removeItem(at: packDir)
         try fm.moveItem(at: stage, to: packDir)
+        swapped = true
     }
+
+    /// Byte ceilings. The registry is third-party content: a manifest pointing at a huge file must
+    /// not be buffered whole, and a pack is a handful of short clips.
+    enum Limits {
+        static let indexBytes = 8 << 20
+        static let manifestBytes = 1 << 20
+        static let soundBytes = 10 << 20
+        static let packBytes = 100 << 20
+    }
+
+    @MainActor private static var installing = Set<String>()
+    @MainActor private static func claim(_ name: String) -> Bool { installing.insert(name).inserted }
+    @MainActor private static func release(_ name: String) { installing.remove(name) }
 
     private static func packsDirChild(_ name: String) -> URL {
         AlertPlayer.packsDir.appendingPathComponent(name, isDirectory: true)
     }
 
-    /// GET a URL and buffer the body. URLSession follows redirects itself.
-    static func get(_ url: String) async throws -> Data {
+    /// GET a URL and buffer the body, refusing past `limit` bytes. Redirects follow `RawGitHubOnly`.
+    static func get(_ url: String, limit: Int) async throws -> Data {
         guard let u = URL(string: url) else { throw SoundPackError.http(url, 0) }
         var req = URLRequest(url: u, timeoutInterval: 60)
         req.setValue("everquest-companion", forHTTPHeaderField: "User-Agent")
-        let (data, resp) = try await URLSession.shared.data(for: req)
+        let (bytes, resp) = try await URLSession.shared.bytes(for: req, delegate: RawGitHubOnly.shared)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(code) else { throw SoundPackError.http(url, code) }
+        if resp.expectedContentLength > Int64(limit) { throw SoundPackError.tooLarge(url) }
+        var data = Data()
+        if resp.expectedContentLength > 0 { data.reserveCapacity(Int(resp.expectedContentLength)) }
+        for try await b in bytes {
+            data.append(b)
+            if data.count > limit { throw SoundPackError.tooLarge(url) }
+        }
         return data
     }
 
@@ -430,5 +467,20 @@ final class SoundPackRegistry {
             // Best effort and silent, exactly as provisionPacks.ts is: a failed run retries next
             // launch, and the Sound packs sheet installs it by hand meanwhile.
         }
+    }
+}
+
+/// Sound-pack downloads follow a redirect only over https, and only to the host the request began
+/// on or to raw.githubusercontent.com (every pack file URL is built on it). Anything else ends the
+/// request at the redirect.
+final class RawGitHubOnly: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    static let shared = RawGitHubOnly()
+
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest) async -> URLRequest? {
+        guard let u = request.url, u.scheme == "https",
+              u.host == "raw.githubusercontent.com" || u.host == task.originalRequest?.url?.host else { return nil }
+        return request
     }
 }
