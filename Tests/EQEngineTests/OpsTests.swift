@@ -686,12 +686,19 @@ final class OpsTests: XCTestCase {
     @MainActor
     func firstReset(_ client: EngineClient, _ descriptor: ViewDescriptor) async -> (total: Int, keys: [String]) {
         var latest: (total: Int, keys: [String]) = (0, [])
+        var windows = 0
         let handle = client.subscribe(descriptor) { state in
             guard let rows = state.rows else { return }
             latest = (state.total, rows.map(\.key))
+            windows += 1
         }
-        // 0.6 s, the recorder's own quiet window: long enough for the tail to serve one boundary.
-        try? await Task.sleep(nanoseconds: 900_000_000)
+        // The opening reset is the first window and the fold's own the second, one serve boundary
+        // later. Waiting for the second rather than a fixed nap saves most of a second per fixture;
+        // the 0.9 s ceiling is the old fixed wait, for a fold that never serves one.
+        let deadline = Date().addingTimeInterval(0.9)
+        while windows < 2, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
         handle.close()
         return latest
     }
