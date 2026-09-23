@@ -69,7 +69,10 @@ final class AppModel {
     // MARK: - Streams
     var fires: [FireMessage] = []
     var lastConCard: JSONValue?
-    var moduleSeqs: [String: Int] = [:]
+    /// Per-module seqs, each observable on its own: a view keyed on `moduleSeqs["kills"]` is not
+    /// re-rendered by a `moduleChanged` for loot. (One `[String: Int]` property was one observation
+    /// for every key, and live folds announce up to ten times a second.)
+    @ObservationIgnored let moduleSeqs = ModuleSeqs()
     let alerts = AlertStore()
     let player = AlertPlayer()
 
@@ -415,5 +418,28 @@ enum ClientLog {
                 try? h.close()
             }
         }
+    }
+}
+
+/// `moduleChanged` seqs by module, with one observation per module. Read and written like the
+/// dictionary it replaced; reading a module no one has announced yet registers on its box, so the
+/// first announcement still reaches that reader.
+@MainActor
+final class ModuleSeqs {
+    @Observable
+    final class Box { var value: Int? }
+
+    private var boxes: [String: Box] = [:]
+
+    subscript(_ module: String) -> Int? {
+        get { box(module).value }
+        set { box(module).value = newValue }
+    }
+
+    private func box(_ module: String) -> Box {
+        if let b = boxes[module] { return b }
+        let b = Box()
+        boxes[module] = b
+        return b
     }
 }

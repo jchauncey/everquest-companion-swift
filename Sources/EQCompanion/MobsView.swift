@@ -32,8 +32,9 @@ struct MobsView: View {
     @State private var minLevel = ""
     @State private var maxLevel = ""
 
-    /// The kill index, folded once per snapshot — never per row.
-    private var killIndex: [String: KillInfo] { KillRecord.index(KillRecord.parse(kills.state)) }
+    /// The kill index, folded once per snapshot — never per row. Stored and rebuilt when the kills
+    /// snapshot lands: as a computed property every visible row re-parsed the whole snapshot.
+    @State private var killIndex: [String: KillInfo] = [:]
     private var zone: String? {
         let z = character.state["zone"].string ?? ""
         return z.isEmpty ? nil : z
@@ -89,12 +90,13 @@ struct MobsView: View {
     /// Browsing by filter alone (no search text): the catalog rows the filters keep, ordered by
     /// the bottom of their stated level span, capped so a level-only sweep stays a list.
     private var filterBrowse: some View {
-        let rows = GameData.shared.mobs.filter(passesFilters)
-            .sorted { a, b in
-                let la = Self.levelRange(a.level)?.lowerBound ?? Int.max
-                let lb = Self.levelRange(b.level)?.lowerBound ?? Int.max
-                return la != lb ? la < lb : a.page < b.page
-            }
+        // Each row's level floor is parsed once, not twice per comparison.
+        let kept: [(floor: Int, mob: GameData.Mob)] = GameData.shared.mobs.filter(passesFilters).map { m in
+            (Self.levelRange(m.level)?.lowerBound ?? Int.max, m)
+        }
+        let rows: [GameData.Mob] = kept
+            .sorted { a, b in a.floor != b.floor ? a.floor < b.floor : a.mob.page < b.mob.page }
+            .map { $0.mob }
         let shown = Array(rows.prefix(200))
         return Card {
             HStack(spacing: 4) {
@@ -130,7 +132,10 @@ struct MobsView: View {
                         .frame(minWidth: 320, idealWidth: 400, maxWidth: 560)
                 }
             }
-            .task(id: "\(model.moduleSeqs["kills"] ?? 0)|\(model.epoch ?? 0)") { await kills.refresh(model, module: "kills") }
+            .task(id: "\(model.moduleSeqs["kills"] ?? 0)|\(model.epoch ?? 0)") {
+                await kills.refresh(model, module: "kills")
+                killIndex = KillRecord.index(KillRecord.parse(kills.state))
+            }
             .task(id: "\(model.moduleSeqs["consider"] ?? 0)|\(model.epoch ?? 0)") { await consider.refresh(model, module: "consider") }
             .task(id: "\(model.moduleSeqs["character"] ?? 0)|\(model.epoch ?? 0)") { await character.refresh(model, module: "character") }
         }
