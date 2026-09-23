@@ -356,6 +356,9 @@ public final class BuffInstances {
         if let p = pending, p.beganTs <= ts { pending = nil }
     }
 
+    /// What the hygiene sweep decided for one active row.
+    private enum HygieneVerdict { case keep, retire(cutoff: Int64), cull }
+
     /// Hygiene sweep: retire any active past its per-spell cap.
     ///
     /// `heldBeforeTs` is the last-known-online instant of a log hole whose explanation has not
@@ -370,25 +373,33 @@ public final class BuffInstances {
     public func sweepHygiene(_ now: Int64, _ heldBeforeTs: Int64,
                              _ stats: SpellStats, _ pets: PetEntities) -> Bool {
         var changed = false
+        // The verdict is read in place (`withValue`) and acted on after: the row is a wide struct,
+        // and copying it out once per active row per event was most of this sweep's cost.
         for ik in active.keys {
-            guard let a = active[ik] else { continue }
-            if a.permanent == true { continue }
-            if heldBeforeTs > 0 && a.cls != .debuff && a.startedTs <= heldBeforeTs { continue }
-            let dbMs = stats.dbDurationFor(BuffsShapes.instanceSpellKey(ik))
-            // The long stop goes first, because it means "we lost the thread" and is the only one
-            // that takes the PAIRING RECORD with it.
-            let longCap = BuffsInstanceRules.hygieneCap(a, dbMs)
-            let elapsed = Double(now - a.startedTs)
-            if elapsed > longCap {
-                // The cap is fractional whenever the p75 statistic beat the 90-minute floor, and
-                // `dropExpired` compares an integer ts against it. For an integer x, `x <= r` is
-                // `x <= floor(r)`.
-                let cutoff = Int64((Double(now) - longCap).rounded(.down))
+            let verdict: HygieneVerdict? = active.withValue(ik) { a in
+                if a.permanent == true { return .keep }
+                if heldBeforeTs > 0 && a.cls != .debuff && a.startedTs <= heldBeforeTs { return .keep }
+                let dbMs = stats.dbDurationFor(BuffsShapes.instanceSpellKey(ik))
+                // The long stop goes first, because it means "we lost the thread" and is the only
+                // one that takes the PAIRING RECORD with it.
+                let longCap = BuffsInstanceRules.hygieneCap(a, dbMs)
+                let elapsed = Double(now - a.startedTs)
+                if elapsed > longCap {
+                    // The cap is fractional whenever the p75 statistic beat the 90-minute floor, and
+                    // `dropExpired` compares an integer ts against it. For an integer x, `x <= r` is
+                    // `x <= floor(r)`.
+                    return .retire(cutoff: Int64((Double(now) - longCap).rounded(.down)))
+                }
+                if elapsed > BuffsInstanceRules.unwitnessedCullCap(a) { return .cull }
+                return .keep
+            }
+            switch verdict {
+            case nil, .keep?:
+                continue
+            case .retire(let cutoff)?:
                 retireExpired(ik, cutoff, stats, pets)
                 changed = true
-                continue
-            }
-            if elapsed > BuffsInstanceRules.unwitnessedCullCap(a) {
+            case .cull?:
                 active.remove(ik)
                 changed = true
             }

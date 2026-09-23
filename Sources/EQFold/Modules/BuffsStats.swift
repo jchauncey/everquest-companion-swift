@@ -146,7 +146,7 @@ public final class SpellStats {
     private func rowOf(_ key: String) -> SpellRow? { db.get(key) }
 
     /// Authoritative DB duration (ms) for a spell key, or nil when unknown.
-    public func dbDurationFor(_ key: String) -> Int64? { rowOf(key)?.durationMs }
+    public func dbDurationFor(_ key: String) -> Int64? { db.durationMs(key) }
 
     /// True when a spell KEY is illusion-flagged in the DB.
     public func isIllusion(_ key: String) -> Bool { rowOf(key)?.illusion ?? false }

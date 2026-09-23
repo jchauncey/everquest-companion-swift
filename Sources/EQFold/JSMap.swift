@@ -44,12 +44,23 @@ public struct JSMap<V> {
         return true
     }
 
-    /// By index rather than `entries.map(\.0)`, which copies every (key, value) pair to read the key.
+    /// Through the buffer's addressor: `entries.map(\.0)` or `entries[i].0` copy every (key, value)
+    /// pair to read the key.
     public var keys: [String] {
-        var out: [String] = []
-        out.reserveCapacity(entries.count)
-        for i in entries.indices { out.append(entries[i].0) }
-        return out
+        entries.withUnsafeBufferPointer { buf in
+            var out: [String] = []
+            out.reserveCapacity(buf.count)
+            for i in buf.indices { out.append(buf[i].0) }
+            return out
+        }
+    }
+
+    /// Read one value where it lies and answer what `f` makes of it; nil for an absent key. The
+    /// subscript getter copies the value out, which for a wide struct read on every event is the
+    /// cost, not the lookup.
+    public func withValue<R>(_ key: String, _ f: (V) -> R) -> R? {
+        guard let i = at[key] else { return nil }
+        return entries.withUnsafeBufferPointer { f($0[i].1) }
     }
     public var values: [V] { entries.map(\.1) }
     public var pairs: [(String, V)] { entries }

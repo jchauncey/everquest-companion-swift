@@ -106,9 +106,15 @@ public struct SpellRow: Sendable {
 /// so the fold has one code path where the TS has an optional.
 public struct SpellFacts: Sendable {
     private var byKey: [String: SpellRow]
+    /// `byKey[k]?.durationMs`, kept apart: the buffs hygiene sweep asks it for every active row on
+    /// every event, and reading it through `get` copies the whole row to read one number.
+    private var durations: [String: Int64]
 
-    public init() { byKey = [:] }
-    private init(byKey: [String: SpellRow]) { self.byKey = byKey }
+    public init() { byKey = [:]; durations = [:] }
+    private init(byKey: [String: SpellRow]) {
+        self.byKey = byKey
+        durations = byKey.compactMapValues(\.durationMs)
+    }
 
     /// Project `db.byKey` — the first row per canonical name, which is what `build` keeps.
     public static func project(_ db: SpellDb) -> SpellFacts {
@@ -130,6 +136,9 @@ public struct SpellFacts: Sendable {
 
     /// `db.byKey.get(key)`.
     public func get(_ key: String) -> SpellRow? { byKey[key] }
+
+    /// `get(key)?.durationMs`, without the row.
+    public func durationMs(_ key: String) -> Int64? { durations[key] }
 
     public var isEmpty: Bool { byKey.isEmpty }
 
