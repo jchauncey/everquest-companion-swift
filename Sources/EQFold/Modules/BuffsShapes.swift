@@ -151,16 +151,23 @@ public enum BuffsShapes {
 
     /// Extract the entity key from an instance key.
     public static func instanceEntityKey(_ iKey: String) -> String {
-        guard let i = iKey.firstIndex(of: sep) else { return selfKey }
-        return String(iKey[iKey.index(after: i)...])
+        guard let i = sepIndex(iKey) else { return selfKey }
+        return String(iKey[iKey.utf8.index(after: i)...])
     }
 
     /// Extract the SPELL LINE key from an instance key — the identity, not the display name. A
     /// family row is named for every candidate and keyed on one of them, so anything asking "which
     /// spell is this row" must ask the KEY and never re-derive it from what the row says.
     public static func instanceSpellKey(_ iKey: String) -> String {
-        guard let i = iKey.firstIndex(of: sep) else { return iKey }
+        guard let i = sepIndex(iKey) else { return iKey }
         return String(iKey[..<i])
+    }
+
+    /// The separator's position, found over UTF-8 bytes. NUL is a grapheme break on both sides, so
+    /// the byte search and `firstIndex(of: sep)` land on the same index; the byte search is what
+    /// the hygiene sweep can afford once per active row per event.
+    private static func sepIndex(_ iKey: String) -> String.Index? {
+        iKey.utf8.firstIndex(of: 0)
     }
 
     /// The canonical spell key: case-stable and RANK-STRIPPED, with a case-sensitive rank tail.

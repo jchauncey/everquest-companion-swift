@@ -44,7 +44,13 @@ public struct JSMap<V> {
         return true
     }
 
-    public var keys: [String] { entries.map(\.0) }
+    /// By index rather than `entries.map(\.0)`, which copies every (key, value) pair to read the key.
+    public var keys: [String] {
+        var out: [String] = []
+        out.reserveCapacity(entries.count)
+        for i in entries.indices { out.append(entries[i].0) }
+        return out
+    }
     public var values: [V] { entries.map(\.1) }
     public var pairs: [(String, V)] { entries }
 
