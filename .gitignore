@@ -3,4 +3,5 @@ dist/
 *.xcodeproj
 .swiftpm/
 Goldens/
+Goldens.new/
 .DS_Store
