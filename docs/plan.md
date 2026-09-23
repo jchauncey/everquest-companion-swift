@@ -14,12 +14,13 @@ systematic pass: open every tab and every Preferences page in turn and fix what 
 - Cursor ring over the CrossOver window; the menu-bar item; the HUD text in the title bar.
 
 ## 2. Fold performance
-- Release fold of the 35 MB / 450k-event real log ≈ 12 s (Rust ≈ 2.2 s). Parser is 2.8 s of it
-  after the NSString bridge cache, native `contains`, JSON fast path and literal gates.
-- Profile the fold (`EQFold`): suspects are `JSONValue` event bodies (allocate per event —
-  consider typed accessors on the `Ev` payload), `Re` (ICU) in the combat modules, `JSMap`.
-- `EQBench` (`swift run --package-path Tools eqbench <log>`) times the parser alone; add a fold
-  timing mode.
+- `eqbench <log> --fold` times parser + fold together. On the real log as of 2026-09-23 (92 MB,
+  1.14M events, release): 29.7 s → 11.3 s after the typed payload keeping Strings, the rank-tail
+  regex replaced by a byte check, the buffs hygiene sweep's quiet-until cache, parse-without-JSON
+  for the fold, the pthread bridge cache and the landing-shape memo. Parse alone is ~5.5 s of it.
+- What the profile shows next (`sample` on `eqbench --fold`): the combat engine (~25%, spread over
+  classify/route/ingestDamage), `Parser.classify`'s regex cascade, Resist, and `reapOrphanedOpen`
+  (runs every event). The roster rebuild and `JSMap.remove` measured at ~1% and were left alone.
 
 ## 3. Preferences — honest gaps the workers reported
 - Overlay meter still draws its own inline alert line; with the alert banner on, both show the
@@ -48,17 +49,23 @@ systematic pass: open every tab and every Preferences page in turn and fix what 
 - Telemetry / feedback upload — deliberately not.
 
 ## 5. Engineering hygiene
-- Duplicate helpers workers flagged: `stableSorted` and `divEuclid` variants across EQFold
-  modules — hoist one each into `JSFn.swift`.
 - `Tests/EQCompanionTests` has no UI snapshot tests; consider a few `ImageRenderer` checks for
   the overlay views (the cursor-ring test already does one pixel check).
-- `scripts/gen-goldens.sh` needs the upstream checkout at `../everquest-companion`; document the
-  commit the goldens were cut at (`fd5e5bb8`) and re-cut when upstream's engine changes.
-- The `_real` goldens are the owner's own log — never commit them (`Goldens/` is ignored).
-- Distribution: the bundle is ad-hoc signed. For anyone else's Mac: Developer ID signing,
-  hardened runtime + notarization, and a DMG target in `build-app.sh`.
+- `scripts/gen-goldens.sh` needs the upstream checkout at `../everquest-companion`; it now records
+  the upstream commit in `Goldens/UPSTREAM` (the current set predates that: `fd5e5bb8`) and
+  refreshes `ci/goldens.tar.xz`. It still calls `gen-engine-goldens.py`; that and
+  `gen-exaltations.py` should be ported to Go beside `scripts/relnotes` (no Python here).
+- The `_real` goldens are the owner's own log — never commit them (`Goldens/` is ignored, and
+  `make goldens-pack` refuses an archive with `_real` in it).
+- Distribution: the bundle is ad-hoc signed and arm64-only while `LSMinimumSystemVersion` 14
+  admits Intel Macs. Either build universal or say "Apple silicon only". For anyone else's Mac:
+  Developer ID signing, hardened runtime + notarization, and a DMG target in `build-app.sh`.
 - `AppModel` still carries the pre-Prefs overlay keys (`eq.overlay.visible/locked/scope`); fold
   them into `Prefs` when touching the overlay next.
+- The banner, con card and toasts repeat the same panel/timer/hover/apply scaffolding; one
+  `TimedStrip` in OverlayHost would stop fixes to one drifting from the others.
+- Strict concurrency is off everywhere; EQCompanionCore and EQFold have no `@unchecked Sendable`
+  and would be the cheap first targets.
 
 ## 6. Nice to have
 - A "What's new" badge on the nav when `ReleaseNotes` is newer than `seenReleaseNotesVersion`.
