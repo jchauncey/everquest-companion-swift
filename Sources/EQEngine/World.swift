@@ -491,6 +491,12 @@ public final class World: @unchecked Sendable {
     /// rows live on the fold thread and this call is on a caller's, so the honest opening frame is
     /// the empty window the protocol requires and the fold answers with a full one at the next
     /// boundary it reaches (one tail nap).
+    ///
+    /// The empty reset is delivered here, inside the same critical section, rather than handed back
+    /// for the caller to send: the fold's serve pass delivers under this lock too, so a full reset
+    /// it owes this subscription is queued strictly behind the empty one. Sent by the caller after
+    /// the lock, the empty reset could land second and leave the client holding nothing while the
+    /// engine diffs against the full window.
     @discardableResult
     public func openSubscription(_ listener: ListenerId, _ subscription: Int64, _ view: View) -> Int64 {
         locked {
@@ -498,6 +504,7 @@ public final class World: @unchecked Sendable {
             if let l = listeners.first(where: { $0.id == listener }) {
                 if l.subscriptions[subscription] == nil { l.order.append(subscription) }
                 l.subscriptions[subscription] = Sub(view: view)
+                l.sink.deliver(.reset(id: Int(subscription), epoch: Int(e), total: 0, rows: []))
             }
             return e
         }

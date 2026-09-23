@@ -77,17 +77,25 @@ final class OpsTests: XCTestCase {
         XCTAssertEqual(reply["result"]["epoch"].int64, 2)
     }
 
-    func testASubscriptionAcknowledgesThenOpensWithAnEmptyReset() {
-        let (world, session) = table()
-        let messages = sent(ask(world, session, 7, "view.subscribe", ["source": "loot.ledger"]))
-        XCTAssertEqual(messages.count, 2, "an ack then a reset, in that order")
-        XCTAssertEqual(messages[0]["kind"].string, "reply")
-        XCTAssertEqual(messages[0]["result"]["subscription"].int64, 7)
-        XCTAssertEqual(messages[0]["result"]["subscribed"].bool, true)
-        XCTAssertEqual(messages[1]["kind"].string, "reset")
-        XCTAssertEqual(messages[1]["id"].int64, 7)
-        XCTAssertEqual(messages[1]["total"].int64, 0)
-        XCTAssertEqual(messages[1]["rows"].array?.count, 0)
+    func testASubscriptionAcknowledgesAndOpensWithAnEmptyReset() {
+        let world = World(ingest: { _, _, _, _ in })
+        let sink = RecordingSink()
+        let session = Session(listener: world.join(sink))
+        let ack = one(ask(world, session, 7, "view.subscribe", ["source": "loot.ledger"]))
+        XCTAssertEqual(ack["kind"].string, "reply")
+        XCTAssertEqual(ack["result"]["subscription"].int64, 7)
+        XCTAssertEqual(ack["result"]["subscribed"].bool, true)
+        // The empty reset goes straight onto the connection, under the world's lock, so the fold's
+        // full reset can never overtake it.
+        let resets = sink.heard().compactMap { frame -> (Int, Int, Int)? in
+            guard case .reset(let id, let epoch, let total, let rows) = frame.message else { return nil }
+            XCTAssertTrue(rows.isEmpty)
+            return (id, epoch, total)
+        }
+        XCTAssertEqual(resets.count, 1)
+        XCTAssertEqual(resets.first?.0, 7)
+        XCTAssertEqual(resets.first.map { Int64($0.1) }, world.health().epoch)
+        XCTAssertEqual(resets.first?.2, 0)
     }
 
     func testUnsubscribingClosesTheStreamOnceAndThenReportsNotFound() {

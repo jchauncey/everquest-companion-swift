@@ -184,17 +184,10 @@ public enum Ops {
             } catch let unexpected {
                 return error(id, .internal, "\(unexpected)")
             }
-            // The registration and the epoch stamp are one act, so the epoch this reset names
-            // cannot be superseded between reading it and sending it.
-            let epoch = world.openSubscription(session.listener, id, view)
-            return .send([
-                replyFrame(id, subscribeAck(id, subscribed: true)),
-                .object(["kind": .string("reset"),
-                         "id": .int(id),
-                         "epoch": .int(epoch),
-                         "total": .int(0),
-                         "rows": .array([])])
-            ])
+            // The registration, the epoch stamp and the empty reset are one act inside the world's
+            // lock, so the reset cannot name a superseded epoch nor arrive behind the fold's own.
+            world.openSubscription(session.listener, id, view)
+            return reply(id, subscribeAck(id, subscribed: true))
 
         // `notFound` for a subscription this connection does not hold, including one it held a
         // moment ago: `subscribed: false` for a stream that was never open would tell a client its

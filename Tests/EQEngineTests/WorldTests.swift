@@ -446,6 +446,8 @@ final class WorldTests: XCTestCase {
         world.join(bystander)
         world.openSubscription(listener, 7, try aView())
         world.openSubscription(listener, 9, try aView())
+        // Each opened with its own empty reset; what follows is about the landing.
+        let opening = sink.heard().count
         world.attach(aLog)
         let generation = world.generation()
 
@@ -453,7 +455,7 @@ final class WorldTests: XCTestCase {
         XCTAssertEqual(world.health().status, .live)
 
         var resetIds: [Int] = []
-        for frame in sink.heard() {
+        for frame in sink.heard().dropFirst(opening) {
             guard case .reset(let id, let epoch, let total, let rows) = frame.message else { continue }
             XCTAssertEqual(epoch, 2, "a reset names the generation that landed")
             XCTAssertTrue(rows.isEmpty)
