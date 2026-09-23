@@ -167,7 +167,7 @@ public enum Key: String, CaseIterable, Sendable {
     public static func parse(_ s: String) -> Key? { Key(rawValue: s) }
 }
 
-/// One field's value: strings and lists are ranges into the payload's arena/tables.
+/// One field's value: strings and lists are indices into the payload's text and list tables.
 public enum Slot: Equatable, Sendable {
     case str(at: Int, len: Int)
     case int(Int64)
@@ -192,26 +192,23 @@ public final class Payload {
     public private(set) var ts: Int64 = 0
     private var rawRange: (Int, Int) = (0, 0)
     public private(set) var envelopeAfter: Int = 0
-    // The arena is an array of Unicode scalars' UTF-8 bytes? No — a String is enough: ranges are
-    // scalar offsets into `arenaScalars`.
-    fileprivate var arena: [Unicode.Scalar] = []
+    // Every text the writer handed over, kept as the String it was. A text range is (index, 0) into
+    // it: the fold reads a damage line's names a dozen times or more, and a read is then one retain
+    // rather than a String rebuilt scalar by scalar.
+    fileprivate var texts: [String] = []
     public private(set) var fields: [(Key, Slot)] = []
     fileprivate var strs: [(Int, Int)] = []
     fileprivate var cands: [CandSlot] = []
     fileprivate var coinsTable: [(String, Int64)] = []
 
     public init() {
-        arena.reserveCapacity(1024)
+        texts.reserveCapacity(16)
         fields.reserveCapacity(16)
     }
 
     public var raw: String { text(rawRange) }
 
-    public func text(_ r: (Int, Int)) -> String {
-        var s = String.UnicodeScalarView()
-        s.append(contentsOf: arena[r.0..<r.0 + r.1])
-        return String(s)
-    }
+    public func text(_ r: (Int, Int)) -> String { texts[r.0] }
 
     public func slot(_ key: Key) -> Slot? {
         for (k, s) in fields where k == key { return s }
@@ -262,7 +259,7 @@ public final class Payload {
     fileprivate func begin(_ kind: Kind) {
         self.kind = kind
         seq = 0; ts = 0; rawRange = (0, 0); envelopeAfter = 0
-        arena.removeAll(keepingCapacity: true)
+        texts.removeAll(keepingCapacity: true)
         fields.removeAll(keepingCapacity: true)
         strs.removeAll(keepingCapacity: true)
         cands.removeAll(keepingCapacity: true)
@@ -270,9 +267,8 @@ public final class Payload {
     }
 
     fileprivate func pushText(_ v: String) -> (Int, Int) {
-        let at = arena.count
-        arena.append(contentsOf: v.unicodeScalars)
-        return (at, arena.count - at)
+        texts.append(v)
+        return (texts.count - 1, 0)
     }
 
     fileprivate func setEnvelope(seq: Int64, ts: Int64, raw: String) {
