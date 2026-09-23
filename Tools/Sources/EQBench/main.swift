@@ -50,7 +50,7 @@ if args.contains("--fold") {
                                    clock: foldParser.clock, attachedAtMs: 0, stateDir: nil))
     let f0 = Date()
     var seq: Int64 = 0
-    Scan.bytes(foldParser, data) { json, payload in
+    Scan.bytes(foldParser, data, json: false) { json, payload in
         sink.event(IngestEvent(json: json, payload: payload, seq: seq, live: false))
         seq += 1
     }

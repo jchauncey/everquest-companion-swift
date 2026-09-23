@@ -5,10 +5,12 @@ import Foundation
 
 public enum Scan {
     /// Fold a complete file, calling `emit` with each event's JSON and payload. Returns the count.
+    /// `json: false` hands `emit` an empty line and builds the payload alone.
     @discardableResult
-    public static func bytes(_ parser: Parser, _ data: Data, _ emit: (String, Payload) -> Void) -> Int64 {
+    public static func bytes(_ parser: Parser, _ data: Data, json: Bool = true,
+                             _ emit: (String, Payload) -> Void) -> Int64 {
         var seq: Int64 = 0
-        let ev = Ev()
+        let ev = Ev(json: json)
         data.withUnsafeBytes { (buf: UnsafeRawBufferPointer) in
             let base = buf.bindMemory(to: UInt8.self)
             var start = 0

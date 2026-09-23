@@ -74,7 +74,7 @@ public final class Fold {
 
     /// Fold a complete log through the scanner. Historical: `live` false throughout, never ticks.
     public func foldBytes(_ parser: Parser, _ data: Data) {
-        Scan.bytes(parser, data) { _, payload in
+        Scan.bytes(parser, data, json: false) { _, payload in
             self.onPrimary(Event.typed(payload), live: false)
         }
     }

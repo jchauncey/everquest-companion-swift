@@ -102,6 +102,9 @@ public final class FoldSink: EventSink {
 
     /// One event, straight from the parser into the fold. There is nothing to decline: the payload
     /// IS what the parser wrote, and a parse that produced no event never reaches this method.
+    /// The fold reads the payload and nothing else.
+    public var wantsJSON: Bool { false }
+
     public func event(_ event: IngestEvent) {
         fold.onPrimary(Event.typed(event.payload), live: event.live)
     }

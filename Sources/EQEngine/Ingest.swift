@@ -294,6 +294,10 @@ public protocol EventSink: AnyObject {
     /// sighting; `false` covers no respawn module, an unknown id and a row not currently seen.
     func confirmSighting(_ rowId: String) -> Bool
 
+    /// Whether `IngestEvent.json` must carry the serialized line. A sink that reads only `payload`
+    /// says no, and the parser skips the serialization. Default: yes.
+    var wantsJSON: Bool { get }
+
     /// The alert fires this sink produced since the last drain. Structurally empty for a historical
     /// scan: firing is live-only, gated where the app gates it.
     func takeFires() -> [Fire]
@@ -347,6 +351,7 @@ public protocol EventSink: AnyObject {
 
 public extension EventSink {
     func tick(_ nowMs: Int64) {}
+    var wantsJSON: Bool { true }
     func report() -> SinkReport { SinkReport() }
     func snapshot(_ module: String) -> ModuleSnapshot? { nil }
     func sourceRows(_ source: SourceDef) -> [SourceRow]? { nil }
@@ -854,7 +859,7 @@ public enum Ingest {
         let startMark = resumed?.mark ?? 0
         if startMark > 0, lseek(fd, off_t(startMark), SEEK_SET) < 0 { throw TailIOError(errno) }
         var core = TailCore.at(startMark)
-        let ev = Ev()
+        let ev = Ev(json: sink.wantsJSON)
         var seq: Int64 = resumed?.seq ?? 0
         var buf = [UInt8](repeating: 0, count: scanReadBytes)
         let cadence = Cadence(every: progressEvery)

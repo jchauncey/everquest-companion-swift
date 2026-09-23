@@ -299,26 +299,36 @@ public final class Payload {
 }
 
 /// The writer: JSON text and the payload, built in one pass.
+///
+/// `json: false` builds the payload alone. The fold reads only the payload, and serializing every
+/// field of every event it will never look at was a fifth of a parse; the parser oracle, the
+/// counting sinks and `eqtool events` keep the default and get the byte-identical line.
 public final class Ev {
     private var buf = ""
     private var first = true
     private var closed = false
     public let payload = Payload()
+    public let writesJSON: Bool
 
-    public init() { buf.reserveCapacity(1024) }
+    public init(json: Bool = true) {
+        writesJSON = json
+        if json { buf.reserveCapacity(1024) }
+    }
 
     public func begin(_ kind: Kind) {
+        payload.begin(kind)
+        guard writesJSON else { return }
         buf.removeAll(keepingCapacity: true)
         buf.append("{")
         first = true
         closed = false
-        payload.begin(kind)
         jsonKey(.kind)
         JS.writeJSONString(&buf, kind.rawValue)
     }
 
     public func envelope(_ seq: Int64, _ ts: Int64, _ raw: String) {
         payload.setEnvelope(seq: seq, ts: ts, raw: raw)
+        guard writesJSON else { return }
         jsonKey(.seq); buf.append(String(seq))
         jsonKey(.ts); buf.append(String(ts))
         jsonKey(.raw); JS.writeJSONString(&buf, raw)
@@ -328,8 +338,9 @@ public final class Ev {
     public func envelope(_ c: Ctx) { envelope(c.seq, c.ts, c.raw) }
 
     /// The finished JSON line (no trailing newline). Closes the object in place — no copy per
-    /// event — and is idempotent.
+    /// event — and is idempotent. Empty for a writer built with `json: false`.
     public func finish() -> String {
+        guard writesJSON else { return "" }
         if !closed { buf.append("}"); closed = true }
         return buf
     }
@@ -343,8 +354,10 @@ public final class Ev {
     }
 
     public func s(_ k: Key, _ v: String) {
-        jsonKey(k)
-        JS.writeJSONString(&buf, v)
+        if writesJSON {
+            jsonKey(k)
+            JS.writeJSONString(&buf, v)
+        }
         let r = payload.pushText(v)
         payload.note(k, .str(at: r.0, len: r.1))
     }
@@ -355,8 +368,10 @@ public final class Ev {
     public func sOpt(_ k: Key, _ v: Substring?) { if let v { s(k, String(v)) } }
 
     public func i(_ k: Key, _ v: Int64) {
-        jsonKey(k)
-        buf.append(String(v))
+        if writesJSON {
+            jsonKey(k)
+            buf.append(String(v))
+        }
         payload.note(k, .int(v))
     }
 
@@ -365,88 +380,109 @@ public final class Ev {
     public func iOpt(_ k: Key, _ v: Int64?) { if let v { i(k, v) } }
 
     public func iOrNull(_ k: Key, _ v: Int64?) {
-        if let v { i(k, v) } else { jsonKey(k); buf.append("null"); payload.note(k, .null) }
+        if let v { i(k, v) } else { null(k) }
     }
 
     public func sOrNull(_ k: Key, _ v: String?) {
-        if let v { s(k, v) } else { jsonKey(k); buf.append("null"); payload.note(k, .null) }
+        if let v { s(k, v) } else { null(k) }
+    }
+
+    private func null(_ k: Key) {
+        if writesJSON { jsonKey(k); buf.append("null") }
+        payload.note(k, .null)
     }
 
     public func b(_ k: Key, _ v: Bool) {
-        jsonKey(k)
-        buf.append(v ? "true" : "false")
+        if writesJSON {
+            jsonKey(k)
+            buf.append(v ? "true" : "false")
+        }
         payload.note(k, .bool(v))
     }
 
     public func f(_ k: Key, _ v: Double) {
-        jsonKey(k)
-        JS.writeNumber(&buf, v)
+        if writesJSON {
+            jsonKey(k)
+            JS.writeNumber(&buf, v)
+        }
         payload.note(k, .float(v))
     }
 
     public func strs(_ k: Key, _ v: [String]) {
-        jsonKey(k)
-        buf.append("[")
-        for (i, s) in v.enumerated() {
-            if i > 0 { buf.append(",") }
-            JS.writeJSONString(&buf, s)
+        if writesJSON {
+            jsonKey(k)
+            buf.append("[")
+            for (i, s) in v.enumerated() {
+                if i > 0 { buf.append(",") }
+                JS.writeJSONString(&buf, s)
+            }
+            buf.append("]")
         }
-        buf.append("]")
         let r = payload.pushStrs(v)
         payload.note(k, .strs(at: r.0, len: r.1))
     }
 
     /// `candidates` as `{name, durationMs}` objects.
     public func candsND(_ k: Key, _ v: [(String, Int64?)]) {
-        jsonKey(k)
-        buf.append("[")
+        if writesJSON {
+            jsonKey(k)
+            buf.append("[")
+            for (i, (name, dur)) in v.enumerated() {
+                if i > 0 { buf.append(",") }
+                buf.append("{\"name\":")
+                JS.writeJSONString(&buf, name)
+                buf.append(",\"durationMs\":")
+                buf.append(dur.map { String($0) } ?? "null")
+                buf.append("}")
+            }
+            buf.append("]")
+        }
         let at = payload.candsCount
-        for (i, (name, dur)) in v.enumerated() {
-            if i > 0 { buf.append(",") }
-            buf.append("{\"name\":")
-            JS.writeJSONString(&buf, name)
-            buf.append(",\"durationMs\":")
-            buf.append(dur.map { String($0) } ?? "null")
-            buf.append("}")
+        for (name, dur) in v {
             let r = payload.pushText(name)
             payload.pushCand(CandSlot(name: r, durationMs: dur, illusion: false))
         }
-        buf.append("]")
         payload.note(k, .cands(at: at, len: v.count))
     }
 
     /// `candidates` as `{name, durationMs, illusion}` objects.
     public func candsNDI(_ k: Key, _ v: [(String, Int64?, Bool)]) {
-        jsonKey(k)
-        buf.append("[")
+        if writesJSON {
+            jsonKey(k)
+            buf.append("[")
+            for (i, (name, dur, ill)) in v.enumerated() {
+                if i > 0 { buf.append(",") }
+                buf.append("{\"name\":")
+                JS.writeJSONString(&buf, name)
+                buf.append(",\"durationMs\":")
+                buf.append(dur.map { String($0) } ?? "null")
+                buf.append(",\"illusion\":")
+                buf.append(ill ? "true" : "false")
+                buf.append("}")
+            }
+            buf.append("]")
+        }
         let at = payload.candsCount
-        for (i, (name, dur, ill)) in v.enumerated() {
-            if i > 0 { buf.append(",") }
-            buf.append("{\"name\":")
-            JS.writeJSONString(&buf, name)
-            buf.append(",\"durationMs\":")
-            buf.append(dur.map { String($0) } ?? "null")
-            buf.append(",\"illusion\":")
-            buf.append(ill ? "true" : "false")
-            buf.append("}")
+        for (name, dur, ill) in v {
             let r = payload.pushText(name)
             payload.pushCand(CandSlot(name: r, durationMs: dur, illusion: ill))
         }
-        buf.append("]")
         payload.note(k, .cands(at: at, len: v.count))
     }
 
     /// A coin object, denominations in clause order.
     public func coins(_ k: Key, _ v: [(String, Int64)]) {
-        jsonKey(k)
-        buf.append("{")
-        for (i, (denom, amount)) in v.enumerated() {
-            if i > 0 { buf.append(",") }
-            JS.writeJSONString(&buf, denom)
-            buf.append(":")
-            buf.append(String(amount))
+        if writesJSON {
+            jsonKey(k)
+            buf.append("{")
+            for (i, (denom, amount)) in v.enumerated() {
+                if i > 0 { buf.append(",") }
+                JS.writeJSONString(&buf, denom)
+                buf.append(":")
+                buf.append(String(amount))
+            }
+            buf.append("}")
         }
-        buf.append("}")
         let r = payload.pushCoins(v)
         payload.note(k, .coins(at: r.0, len: r.1))
     }
