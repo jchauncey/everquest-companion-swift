@@ -543,11 +543,13 @@ public final class World: @unchecked Sendable {
                            _ foldedAt: Instant?, _ meter: Meter) -> Bool {
         let prepared = prepare(rows, force: false)
         if prepared.isEmpty { return owns(generation) }
-        return locked {
-            if !owns(generation) { return false }
-            serve(prepared, resetAll: false, foldedAt: foldedAt, meter: meter)
-            return true
+        let sent: [SentFrame]? = locked {
+            if !owns(generation) { return nil }
+            return serve(prepared, resetAll: false)
         }
+        guard let sent else { return false }
+        weigh(sent, foldedAt, meter)
+        return true
     }
 
     /// Which sources have to be built for the next serve pass, and their rows.
@@ -1275,15 +1277,17 @@ public final class World: @unchecked Sendable {
     public func reportFoldLanded(_ generation: UInt64, _ mark: FoldMark, _ rows: ViewRows,
                                  _ foldedAt: Instant?, _ meter: Meter) -> Bool {
         let prepared = prepare(rows, force: true)
-        return locked {
-            if !owns(generation) { return false }
+        let sent: [SentFrame]? = locked {
+            if !owns(generation) { return nil }
             status = .live
             foldCheckpoint = mark.checkpoint
             foldEvents = mark.events
             foldLastTs = mark.lastTs
-            serve(prepared, resetAll: true, foldedAt: foldedAt, meter: meter)
-            return true
+            return serve(prepared, resetAll: true)
         }
+        guard let sent else { return false }
+        weigh(sent, foldedAt, meter)
+        return true
     }
 
     /// There is no fold any more — the ingest could not start, could not read, or threw.
@@ -1325,8 +1329,12 @@ public final class World: @unchecked Sendable {
     ///
     /// A subscription whose source was not prepared is skipped, silently and correctly: the pass
     /// decided nothing about that source had moved.
-    private func serve(_ prepared: [Prepared], resetAll: Bool,
-                       foldedAt: Instant?, meter: Meter) {
+    ///
+    /// Answers with what it sent, for `weigh` to meter once the lock is released: weighing a frame
+    /// serializes all of it, a reset's every row included, and nothing about that needs the lock
+    /// `health`, `openSubscription` and `define` are waiting on.
+    private func serve(_ prepared: [Prepared], resetAll: Bool) -> [SentFrame] {
+        var sent: [SentFrame] = []
         let landed = epoch
         listeners.removeAll { !$0.sink.isOpen }
         for listener in listeners {
@@ -1359,17 +1367,26 @@ public final class World: @unchecked Sendable {
                                    total: total != sub.total ? Int(total) : nil, ops: ops))
                 }
                 if let (kind, rowCount, ops, message) = frame {
-                    // The bytes are the frame's own: measured from the message about to go out
-                    // rather than estimated from the rows, because an estimated payload budget is a
-                    // payload budget nobody is keeping.
-                    let bytes = payloadWeight(message)
-                    meter.frame(source.source, kind, rowCount, ops, bytes, foldedAt)
                     listener.sink.deliver(message)
+                    sent.append(SentFrame(source: source.source, kind: kind, rows: rowCount,
+                                          ops: ops, message: message))
                 }
                 sub.held = rows
                 sub.total = total
                 sub.revision = source.revision
             }
+        }
+        return sent
+    }
+
+    /// Meter what one serve pass sent. On the fold thread, which owns the meter, after the lock.
+    ///
+    /// The bytes are each frame's own: measured from the message that went out rather than
+    /// estimated from the rows, because an estimated payload budget is a payload budget nobody is
+    /// keeping.
+    private func weigh(_ sent: [SentFrame], _ foldedAt: Instant?, _ meter: Meter) {
+        for f in sent {
+            meter.frame(f.source, f.kind, f.rows, f.ops, payloadWeight(f.message), foldedAt)
         }
     }
 
@@ -1475,6 +1492,15 @@ func serveRows(_ served: [SourceMeter], _ watched: [String: Int64]) -> [PerfServ
 ///
 /// Only the two stream frames are weighed: the connection-wide announcements are a handful of
 /// integers and carry no view payload at all.
+/// One frame a serve pass delivered, kept for `weigh`.
+struct SentFrame {
+    var source: String
+    var kind: FrameKind
+    var rows: Int
+    var ops: Int
+    var message: EngineMessage
+}
+
 func payloadWeight(_ m: EngineMessage) -> Int {
     switch m {
     case .reset(let id, let epoch, let total, let rows):
