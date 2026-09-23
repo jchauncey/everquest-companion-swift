@@ -128,15 +128,15 @@ final class AppModel {
     }
 
     /// Retire the fold so its state files are written, then let the process end. The ingest exits
-    /// at its next slice boundary (≤ 25 ms of nap in the live tail), so a short wait is enough.
+    /// at its next slice boundary, but a checkpoint save under way runs to the end first, so the
+    /// wait is for the thread itself, bounded.
     func shutdown() {
         healthTask?.cancel()
         client.detach()
         link?.close()
         link = nil
-        world?.shutdown()
+        world?.shutdown(wait: 5)
         world = nil
-        Thread.sleep(forTimeInterval: 0.4)
     }
 
     /// Build the world and attach the client through the in-process link. Nothing is spawned.
@@ -181,8 +181,9 @@ final class AppModel {
         link?.close()
         link = nil
         // Retire the old fold first: its ingest thread holds the world and only exits once its
-        // generation is no longer owned, so a bare `world = nil` leaves it tailing forever.
-        world?.shutdown()
+        // generation is no longer owned, so a bare `world = nil` leaves it tailing forever. The
+        // bounded wait keeps its last flush from overlapping the new world's first read.
+        world?.shutdown(wait: 2)
         world = nil
         attached = nil
         health = nil

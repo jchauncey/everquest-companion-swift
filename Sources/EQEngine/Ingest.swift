@@ -720,7 +720,9 @@ public enum Ingest {
     /// and all that is left is to say the world holds no fold, which is what `idle` means.
     public static func start(world: World, generation: UInt64, log: URL,
                              stateDir: URL?, sinks: @escaping SinkFactory) {
+        world.ingests.enter()
         let thread = Thread {
+            defer { world.ingests.leave() }
             // The class this thread was created at, restated by the thread itself: the setter can
             // only ever change `wanted`, and this is the one place the running fold reads it.
             FoldPriority.applyToFoldThread(force: true)

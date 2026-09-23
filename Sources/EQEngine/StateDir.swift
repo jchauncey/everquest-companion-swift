@@ -156,11 +156,11 @@ public final class StateDir {
     }
 }
 
-/// Temp + fsync + rename, in that order. The scratch file is `<path>.tmp`, the same spelling
-/// app-side.
+/// Temp + fsync + rename, in that order.
 ///
-/// One writer per file is what makes a single scratch path safe: the write happens on the ingest
-/// thread, from the tick, and there is exactly one ingest thread per generation.
+/// The scratch path is unique per write. One ingest thread per generation is not one writer per
+/// file: a retiring generation's last flush can overlap the next one's, and two writers sharing
+/// one `.tmp` would rename each other's half-written bytes into place.
 ///
 /// The directory is created if missing, because a `stateDir` pushed before the app had created it
 /// is a race the engine should absorb rather than fail on.
@@ -170,10 +170,7 @@ public final class StateDir {
 func writeDurable(_ path: URL, _ text: String) throws {
     let parent = path.deletingLastPathComponent()
     try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-    let ext = path.pathExtension
-    let tmp = ext.isEmpty
-        ? path.appendingPathExtension("tmp")
-        : path.deletingPathExtension().appendingPathExtension("\(ext).tmp")
+    let tmp = scratchPath(for: path)
     do {
         try fillAndFlush(tmp, text)
     } catch {
@@ -192,6 +189,12 @@ func writeDurable(_ path: URL, _ text: String) throws {
         try? FileManager.default.removeItem(at: tmp)
         throw error
     }
+}
+
+/// `<name>.<unique>.tmp` beside `path`: same directory, so the rename stays on one volume.
+func scratchPath(for path: URL) -> URL {
+    path.deletingLastPathComponent()
+        .appendingPathComponent("\(path.lastPathComponent).\(UUID().uuidString.prefix(8)).tmp")
 }
 
 /// The scratch file, written and flushed to the device. `fsync` is a step of its own — see the file

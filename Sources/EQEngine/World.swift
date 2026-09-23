@@ -378,6 +378,9 @@ public final class World: @unchecked Sendable {
     private let ingest: Starter
     /// The ingest's ownership token. Written only under the state lock; read without it.
     private let generationLock = NSLock()
+    /// Every ingest thread this world started and that has not yet returned. `shutdown(wait:)` waits
+    /// on it so a quitting process outlives the last fold's final write.
+    let ingests = DispatchGroup()
     private var generationValue: UInt64 = 0
 
     /// The one critical section. Every field below is read and written only inside `locked`.
@@ -1184,7 +1187,11 @@ public final class World: @unchecked Sendable {
     /// Retire the running fold without starting another — the app is quitting. The bump strips the
     /// ingest of its ownership exactly as an attach would, so it exits at its next boundary and
     /// its sink's `detach` writes the persisted state one last time.
-    public func shutdown() {
+    ///
+    /// `wait` bounds how long to block for the running ingest to return — its detach is the write
+    /// being waited for. A checkpoint save already under way is not preemptible, so a fixed nap is
+    /// not enough. Zero waits for nothing.
+    public func shutdown(wait: TimeInterval = 0) {
         locked {
             generationLock.lock()
             generationValue += 1
@@ -1192,6 +1199,9 @@ public final class World: @unchecked Sendable {
             status = .idle
             asks = nil
             writeTo = nil
+        }
+        if wait > 0, ingests.wait(timeout: .now() + wait) == .timedOut {
+            diagnostic("shutdown: the fold did not finish within \(wait) s")
         }
     }
 

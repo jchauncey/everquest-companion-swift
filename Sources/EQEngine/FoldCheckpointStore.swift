@@ -114,7 +114,7 @@ public enum FoldCheckpointStore {
             "world": world,
         ])
         let url = fileURL(dir: dir, log: log)
-        let tmp = url.appendingPathExtension("tmp")
+        let tmp = scratchPath(for: url)
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             let data = blob.serialized()

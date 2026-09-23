@@ -645,10 +645,10 @@ final class StateDirTests: XCTestCase {
         try "the previous ledger".write(to: path, atomically: true, encoding: .utf8)
         try writeDurable(path, Self.appLedger)
         XCTAssertEqual(try String(contentsOf: path, encoding: .utf8), Self.appLedger)
-        // `<path>.tmp` beside it, gone. A scratch file left behind holds a whole user ledger on a
-        // volume that may have just said it had no room.
-        XCTAssertFalse(FileManager.default
-            .fileExists(atPath: dir.appendingPathComponent("resist-ledger.json.tmp").path))
+        // No scratch file beside it. One left behind holds a whole user ledger on a volume that may
+        // have just said it had no room.
+        let left = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        XCTAssertEqual(left.filter { $0.hasSuffix(".tmp") }, [])
     }
 
     func testAnIdenticalWriteIsDeclinedAndAChangedOneIsNot() throws {
