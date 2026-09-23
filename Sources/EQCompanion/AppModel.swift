@@ -178,6 +178,9 @@ final class AppModel {
         client.detach()
         link?.close()
         link = nil
+        // Retire the old fold first: its ingest thread holds the world and only exits once its
+        // generation is no longer owned, so a bare `world = nil` leaves it tailing forever.
+        world?.shutdown()
         world = nil
         attached = nil
         health = nil
