@@ -11,6 +11,7 @@ CONFIG=release
 for arg in "$@"; do
   case "$arg" in
     --debug) CONFIG=debug ;;
+    *) echo "unknown argument: $arg (usage: scripts/build-app.sh [--debug])" >&2; exit 2 ;;
   esac
 done
 
@@ -19,7 +20,8 @@ echo "==> swift build -c $CONFIG"
 BIN="$HERE/.build/$CONFIG/EQCompanion"
 [ -x "$BIN" ] || { echo "swift binary missing at $BIN" >&2; exit 1; }
 
-VERSION="$(cat "$HERE/VERSION" 2>/dev/null || echo 0.1.0)"
+[ -s "$HERE/VERSION" ] || { echo "VERSION is missing or empty — refusing to stamp a guess" >&2; exit 1; }
+VERSION="$(cat "$HERE/VERSION")"
 DIST="$HERE/dist"
 APP="$DIST/EQCompanion.app"
 echo "==> assembling $APP (version $VERSION)"
@@ -28,8 +30,13 @@ if [ -d "$APP" ]; then rm -r "$APP"; fi
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/EQCompanion"
 
-# The committed game knowledge and wiki images travel as the SwiftPM resource bundle.
-cp -R "$HERE/.build/$CONFIG/EQCompanion_EQData.bundle" "$APP/Contents/Resources/"
+# The committed game knowledge and wiki images travel as SwiftPM resource bundles: every target's,
+# so a target that gains resources is packaged rather than crashing at `Bundle.module`.
+shopt -s nullglob
+BUNDLES=("$HERE/.build/$CONFIG"/EQCompanion_*.bundle)
+shopt -u nullglob
+[ ${#BUNDLES[@]} -gt 0 ] || { echo "no resource bundles in .build/$CONFIG" >&2; exit 1; }
+for b in "${BUNDLES[@]}"; do cp -R "$b" "$APP/Contents/Resources/"; done
 
 # Icon: the repo's 256px PNG, scaled into an .icns.
 ICONSET="$DIST/AppIcon.iconset"
@@ -49,7 +56,7 @@ sed -e "s/__VERSION__/$VERSION/g" "$HERE/Resources/Info.plist" > "$APP/Contents/
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 echo "==> codesign (ad hoc)"
-codesign --force --deep --sign - --entitlements "$HERE/Resources/EQCompanion.entitlements" "$APP"
+codesign --force --sign - --entitlements "$HERE/Resources/EQCompanion.entitlements" "$APP"
 codesign --verify --deep --strict "$APP" && echo "signature ok"
 
 echo "==> done: $APP"

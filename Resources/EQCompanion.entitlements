@@ -2,8 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- Not sandboxed: the app reads a log inside a CrossOver bottle and spawns its own engine.
-         The engine listens on loopback only; nothing leaves the machine. -->
+    <!-- Not sandboxed: the app reads a log inside a CrossOver bottle, which a sandbox would need a
+         user-granted bookmark for. The engine runs in-process; the only network use is the
+         sound-pack download. -->
     <key>com.apple.security.app-sandbox</key><false/>
 </dict>
 </plist>
