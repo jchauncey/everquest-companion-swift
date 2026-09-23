@@ -44,7 +44,12 @@ public final class BuffInstances {
     /// Landed casts awaiting their fade, keyed by INSTANCE key.
     public var open = JSMap<OpenCast>()
     /// Currently-active buff instances, keyed by INSTANCE key.
-    public var active = JSMap<ActiveBuff>()
+    public var active = JSMap<ActiveBuff>() { didSet { sweepQuietUntil = nil } }
+    /// The hygiene sweep's own shortcut: below `ts`, with the same `heldBeforeTs`, no row can reach
+    /// either cap, so the sweep's loop would keep every row. Every verdict is a function of the row,
+    /// the constant spell DB, `now` and `heldBeforeTs`; any write to `active` (an in-place one
+    /// included — `didSet` without `oldValue` fires on those too) clears it.
+    private var sweepQuietUntil: (ts: Int64, heldBeforeTs: Int64)?
     /// Resolved expiries produced while folding the current event, in emission order.
     public var expired: [Expiry] = []
 
@@ -357,7 +362,8 @@ public final class BuffInstances {
     }
 
     /// What the hygiene sweep decided for one active row.
-    private enum HygieneVerdict { case keep, retire(cutoff: Int64), cull }
+    /// `keep` carries the first instant the row could stop being kept: nil for never.
+    private enum HygieneVerdict { case keep(until: Int64?), retire(cutoff: Int64), cull }
 
     /// Hygiene sweep: retire any active past its per-spell cap.
     ///
@@ -372,13 +378,18 @@ public final class BuffInstances {
     @discardableResult
     public func sweepHygiene(_ now: Int64, _ heldBeforeTs: Int64,
                              _ stats: SpellStats, _ pets: PetEntities) -> Bool {
+        if let q = sweepQuietUntil, q.heldBeforeTs == heldBeforeTs, now < q.ts {
+            BuffsInstanceRules.reapOrphanedOpen(&open, active, stats, now)
+            return false
+        }
         var changed = false
+        var quietUntil = Int64.max
         // The verdict is read in place (`withValue`) and acted on after: the row is a wide struct,
         // and copying it out once per active row per event was most of this sweep's cost.
         for ik in active.keys {
             let verdict: HygieneVerdict? = active.withValue(ik) { a in
-                if a.permanent == true { return .keep }
-                if heldBeforeTs > 0 && a.cls != .debuff && a.startedTs <= heldBeforeTs { return .keep }
+                if a.permanent == true { return .keep(until: nil) }
+                if heldBeforeTs > 0 && a.cls != .debuff && a.startedTs <= heldBeforeTs { return .keep(until: nil) }
                 let dbMs = stats.dbDurationFor(BuffsShapes.instanceSpellKey(ik))
                 // The long stop goes first, because it means "we lost the thread" and is the only
                 // one that takes the PAIRING RECORD with it.
@@ -390,12 +401,19 @@ public final class BuffInstances {
                     // `x <= floor(r)`.
                     return .retire(cutoff: Int64((Double(now) - longCap).rounded(.down)))
                 }
-                if elapsed > BuffsInstanceRules.unwitnessedCullCap(a) { return .cull }
-                return .keep
+                let cullCap = BuffsInstanceRules.unwitnessedCullCap(a)
+                if elapsed > cullCap { return .cull }
+                // Kept while `now - startedTs < floor(cap)`: the difference is an integer, so it is
+                // then below the cap itself and neither test above can pass.
+                let cap = Swift.min(longCap, cullCap)
+                guard cap < 1e15 else { return .keep(until: nil) }
+                return .keep(until: a.startedTs + Int64(cap.rounded(.down)))
             }
             switch verdict {
-            case nil, .keep?:
+            case nil:
                 continue
+            case .keep(let until)?:
+                if let until { quietUntil = Swift.min(quietUntil, until) }
             case .retire(let cutoff)?:
                 retireExpired(ik, cutoff, stats, pets)
                 changed = true
@@ -406,6 +424,8 @@ public final class BuffInstances {
         }
         // The loop above can only reach a record through its active row, so the records the cull
         // left behind need their own reaper.
+        // Only a pass that changed nothing knows every row's deadline: a retired row was restated.
+        if !changed { sweepQuietUntil = (quietUntil, heldBeforeTs) }
         BuffsInstanceRules.reapOrphanedOpen(&open, active, stats, now)
         return changed
     }
