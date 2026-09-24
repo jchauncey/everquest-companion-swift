@@ -251,7 +251,7 @@ struct CombatMeterCard: View {
             ForEach(nestedRows(you, pets: pets, inline: true)) { row in
                 switch row {
                 case .skill(let s):
-                    skillBar(s, cls: classes?.classOf(s))
+                    skillBar(s, cls: classes?.classOf(s), overSec: seg["durationSec"].double)
                 case .pet(let p):
                     MeterBarRow(rank: nil, color: classes.map { ClassColor.of($0.petClass) } ?? CombatColor.pet,
                                 pct: p.pct, name: p.name, tag: classes.map { "pet · \($0.petClass)" } ?? "pet",
@@ -371,7 +371,10 @@ struct CombatMeterCard: View {
     }
 
     /// `cls`: the class the row belongs to, which then colours and tags it instead of its category.
-    private func skillBar(_ s: SkillRow, indent: CGFloat = 0, approx: Bool = false, cls: String? = nil) -> some View {
+    /// `overSec`: the fight's length, to add the ability's own dps — its damage over the same span
+    /// as the headline and the class dps, so the rows add up to them.
+    private func skillBar(_ s: SkillRow, indent: CGFloat = 0, approx: Bool = false, cls: String? = nil,
+                          overSec: Double? = nil) -> some View {
         let a = approx ? "~" : ""
         var stats: [String] = []
         if s.hits > 0 { stats.append("\(a)\(s.hits)x") }
@@ -385,7 +388,7 @@ struct CombatMeterCard: View {
                            name: s.children == nil ? s.name : "\(s.name) · \(s.children!.count) skills",
                            tag: cls,
                            badges: [(stats.joined(separator: " · "), Theme.textDim)],
-                           right: "\(a)\(CFmt.num(s.total))",
+                           right: "\(a)\(CFmt.num(s.total))" + (overSec.map { " · \(CFmt.rate(s.total / max(1, $0)))" } ?? ""),
                            indent: indent)
     }
 
