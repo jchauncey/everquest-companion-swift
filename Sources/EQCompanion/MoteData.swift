@@ -191,6 +191,19 @@ enum MoteStats {
         }
     }
 
+    /// The whole fold from the three module snapshots, with the catalog as the facts source — what the
+    /// Motes tab and the Overview card both draw.
+    @MainActor
+    static func rows(loot: JSONValue, kills: JSONValue, consider: JSONValue) -> [MoteRow] {
+        let data = GameData.shared
+        return fold(events: LootEvent.parse(loot), kills: KillRecord.index(KillRecord.parse(kills)),
+                    conLevels: conLevels(consider)) { name in
+            let m = data.mob(named: name)
+            return MobFacts(catalogLevel: m?.level, catalogZone: m?.zones.first,
+                            dropsRareLoot: data.dropsRareLoot(name))
+        }
+    }
+
     /// The consider ring folded to one level per mob: the most recent con wins.
     static func conLevels(_ state: JSONValue) -> [String: Int] {
         var out: [String: (Int64, Int)] = [:]
@@ -270,5 +283,67 @@ enum MoteStats {
             }
             return byName
         }
+    }
+}
+
+// MARK: - The Overview's breakdown
+
+/// The Overview card's reading of the same rows the Motes tab draws: totals, one line per
+/// difficulty, the grade mix and the best sources. Sums of `MoteRow`s, never a second fold, so the
+/// card and the tab cannot disagree.
+struct MoteBreakdown: Equatable {
+    struct TierLine: Identifiable, Equatable {
+        var tier: Int
+        var motes: Int
+        var kills: Int
+        var corpses: Int
+        var id: Int { tier }
+        var perKill: Double? { kills > 0 ? Double(motes) / Double(kills) : nil }
+    }
+
+    var motes = 0
+    var kills = 0
+    /// Open world, then D0…D4, then "not stated" — the ladder, not the counts, decides the order.
+    var tiers: [TierLine] = []
+    /// Grade → motes, ladder order.
+    var grades: [(grade: String, motes: Int)] = []
+    /// The mobs (at a difficulty) that gave the most motes, best first.
+    var top: [MoteRow] = []
+
+    var isEmpty: Bool { motes == 0 }
+    var perKill: Double? { kills > 0 ? Double(motes) / Double(kills) : nil }
+    /// The difficulty paying the most motes per kill, among those with enough kills to say so.
+    var bestTier: TierLine? {
+        tiers.filter { $0.kills >= MoteBreakdown.minKillsForBest && $0.motes > 0 }
+            .max { ($0.perKill ?? 0) < ($1.perKill ?? 0) }
+    }
+
+    /// Below this many kills a per-kill rate is a coin flip, not a recommendation.
+    static let minKillsForBest = 10
+
+    static func build(_ rows: [MoteRow], top n: Int = 3) -> MoteBreakdown {
+        var b = MoteBreakdown()
+        var byTier: [Int: TierLine] = [:]
+        var byGrade: [String: Int] = [:]
+        for r in rows {
+            b.motes += r.motes
+            b.kills += r.kills
+            var t = byTier[r.tier] ?? TierLine(tier: r.tier, motes: 0, kills: 0, corpses: 0)
+            t.motes += r.motes; t.kills += r.kills; t.corpses += r.corpses
+            byTier[r.tier] = t
+            for (g, c) in r.byGrade { byGrade[g, default: 0] += c }
+        }
+        func ladder(_ tier: Int) -> Int { tier == ZoneTier.unknown ? Int.max : tier }
+        b.tiers = byTier.values.filter { $0.motes > 0 || $0.kills > 0 }.sorted { ladder($0.tier) < ladder($1.tier) }
+        b.grades = MoteStats.grades(rows).map { ($0, byGrade[$0] ?? 0) }
+        b.top = Array(rows.filter { $0.motes > 0 }
+            .sorted { $0.motes != $1.motes ? $0.motes > $1.motes : $0.mob < $1.mob }
+            .prefix(n))
+        return b
+    }
+
+    static func == (a: MoteBreakdown, b: MoteBreakdown) -> Bool {
+        a.motes == b.motes && a.kills == b.kills && a.tiers == b.tiers && a.top == b.top
+            && a.grades.map(\.grade) == b.grades.map(\.grade) && a.grades.map(\.motes) == b.grades.map(\.motes)
     }
 }

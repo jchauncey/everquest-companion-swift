@@ -2,18 +2,26 @@ import SwiftUI
 import Charts
 import EQCompanionCore
 
-/// The landing tab: zone strip, then Damage / Leveling / Target cards, the DPS curve, and the
-/// recent drops and kills feeds — the Electron Overview, card for card.
+/// The landing tab: a sheet of statistics about your play. The zone strip, a row of headline
+/// numbers, then Leveling (level and AA speed) beside Motes, DPS across every fight, Loot & sales
+/// beside Kills, and the recent drops and kills feeds. Every card is a summary of a module the
+/// engine already publishes, and links to the tab that holds the detail.
 struct OverviewView: View {
     @Environment(AppModel.self) private var model
     @State private var character = ModuleSnapshot()
     @State private var progression = ModuleSnapshot()
     @State private var loot = ModuleSnapshot()
-    @State private var poller = CombatPoller()
+    @State private var sales = ModuleSnapshot()
     @State private var kills = LiveView()
     @State private var leveling = OverviewLevelingState()
     @State private var drops: [DropRow] = []
-    @State private var openTab: (Tab) -> Void = { _ in }
+    @State private var killSnap = ModuleSnapshot()
+    @State private var conSnap = ModuleSnapshot()
+    @State private var motes = MoteBreakdown()
+    @State private var lootStats = LootSummary()
+    @State private var saleStats = SalesSummary()
+    @State private var killStats = KillSummary()
+    @State private var fights = FightSeries()
     @AppStorage("eq.tab") private var tabRaw: String = Tab.overview.rawValue
 
     var body: some View {
@@ -21,12 +29,17 @@ struct OverviewView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     zoneStrip
+                    OverviewHeadline(loot: lootStats, sales: saleStats, kills: killStats, motes: motes, fights: fights)
                     HStack(alignment: .top, spacing: 14) {
-                        damageCard.frame(maxWidth: .infinity)
                         levelingCard.frame(maxWidth: .infinity)
-                        targetCard.frame(maxWidth: .infinity)
+                        OverviewMotesCard(breakdown: motes, trailing: link("Open Motes", .motes)).frame(maxWidth: .infinity)
                     }
-                    dpsCurveCard
+                    OverviewFightsCard(fights: fights, trailing: link("Open Combat", .combat))
+                    HStack(alignment: .top, spacing: 14) {
+                        OverviewLootSalesCard(loot: lootStats, sales: saleStats, trailing: link("All loot", .loot))
+                            .frame(maxWidth: .infinity)
+                        OverviewKillsCard(kills: killStats, trailing: link("Open Mobs", .mobs)).frame(maxWidth: .infinity)
+                    }
                     HStack(alignment: .top, spacing: 14) {
                         dropsCard.frame(maxWidth: .infinity)
                         killsCard.frame(maxWidth: .infinity)
@@ -46,12 +59,48 @@ struct OverviewView: View {
             .task(id: "\(model.moduleSeqs["loot"] ?? 0)|\(model.epoch ?? 0)") {
                 await loot.refresh(model, module: "loot")
                 drops = buildDropRows(loot.state)
+                lootStats = LootSummary.build(LootEvent.parse(loot.state))
+                refoldMotes()
+            }
+            .task(id: "\(model.moduleSeqs["sales"] ?? 0)|\(model.epoch ?? 0)") {
+                await sales.refresh(model, module: "sales")
+                saleStats = SalesSummary.parse(sales.state)
+            }
+            .task(id: "\(model.moduleSeqs["kills"] ?? 0)|\(model.epoch ?? 0)") {
+                await killSnap.refresh(model, module: "kills")
+                killStats = KillSummary.build(KillRecord.index(KillRecord.parse(killSnap.state)))
+                refoldMotes()
+            }
+            .task(id: "\(model.moduleSeqs["consider"] ?? 0)|\(model.epoch ?? 0)") {
+                await conSnap.refresh(model, module: "consider")
+                refoldMotes()
             }
             .task(id: model.epoch) { kills.bind(model.client, ViewDescriptor(source: "kills.recent", window: (0, 25))) }
+            .task(id: model.epoch) { await pollFights() }
             .onDisappear { kills.close() }
-            .task { poller.maxSegments = 5; poller.timeline = true; await poller.run(model) }
         }
     }
+
+    /// The Motes card's numbers: the Motes tab's own rows, summed.
+    private func refoldMotes() {
+        motes = MoteBreakdown.build(MoteStats.rows(loot: loot.state, kills: killSnap.state, consider: conSnap.state))
+    }
+
+    /// Every fight's summary, re-read on a slow cadence: the series moves one point per fight, and
+    /// the whole history is thousands of segments, so a per-second poll would be all cost.
+    private func pollFights() async {
+        while !Task.isCancelled {
+            if model.client.isReady,
+               let r = try? await model.client.request(Op.combatSnapshot,
+                                                       ["opts": ["maxSegments": .int(Int64(Self.fightHistory))]], deadline: 15) {
+                fights = FightSeries.build(r["snapshot"]["segments"].array ?? [])
+            }
+            try? await Task.sleep(nanoseconds: 20_000_000_000)
+        }
+    }
+
+    /// More fights than any log holds: the combat engine keeps every fight's summary.
+    private static let fightHistory = 1_000_000
 
     // MARK: - Zone strip
 
@@ -72,32 +121,6 @@ struct OverviewView: View {
             HStack(spacing: 4) { Text(text.uppercased()); Image(systemName: "arrow.up.forward.square") }
                 .font(.caption.weight(.semibold)).foregroundStyle(Theme.gold)
         }.buttonStyle(.plain))
-    }
-
-    // MARK: - Damage
-
-    private var segment: JSONValue { poller.snapshot["selected"] }
-
-    private var damageCard: some View {
-        Card("Damage", trailing: link("Open in Combat", .combat)) {
-            let s = segment
-            if s.isNull {
-                Text(poller.snapshot["hydrating"].bool == true ? "Catching up on the log…" : "No fight recorded yet.").foregroundStyle(Theme.textDim)
-                    .frame(minHeight: 120)
-            } else {
-                let live = poller.snapshot["inCombat"].bool == true && s["active"].bool == true
-                Text("\(live ? "Live fight" : "Last fight") - \(s["name"].string ?? "")").font(.callout).foregroundStyle(Theme.textDim).lineLimit(1)
-                Text(Format.rate(s["outDps"].double ?? 0)).font(.system(size: 34, weight: .semibold)).foregroundStyle(Theme.gold)
-                Text("\(Format.compact(s["outTotal"].double ?? 0)) total · \(clock(s["durationSec"].double ?? 0)) · \(Format.rate(s["activeDps"].double ?? 0)) active")
-                    .font(.caption).foregroundStyle(Theme.textDim)
-                MeterBars(segment: s).padding(.top, 4)
-            }
-        }
-    }
-
-    private func clock(_ sec: Double) -> String {
-        let t = Int(sec.rounded())
-        return String(format: "%d:%02d", t / 60, t % 60)
     }
 
     // MARK: - Leveling
@@ -155,97 +178,6 @@ struct OverviewView: View {
     private static let zonePalette: [Color] = [Theme.green, Theme.purple, Theme.blue, Theme.orange, Theme.gold, Color(hex: 0xd97fb0), Color(hex: 0x7fd6c2), Color(hex: 0xc0c0c0)]
 
     private func sparkColor(_ zone: String) -> Color { Self.zonePalette[overviewZoneColorIndex(zone)] }
-
-    // MARK: - Target
-
-    private var targetCard: some View {
-        Card("Target") {
-            if let t = poller.snapshot["currentTarget"].object, let name = t["name"]?.string {
-                Text(name).font(.headline)
-                if let o = t["others"]?.int, o > 0 { Text("+\(o) other\(o == 1 ? "" : "s") engaged").font(.caption).foregroundStyle(Theme.textDim) }
-                if let m = GameData.shared.mob(named: name) {
-                    Text("Level \(m.level) · \(m.zones.joined(separator: ", "))").font(.caption).foregroundStyle(Theme.textDim)
-                    if !m.drops.isEmpty {
-                        Text("Drops: " + m.drops.prefix(6).joined(separator: ", ") + (m.drops.count > 6 ? " +\(m.drops.count - 6)" : ""))
-                            .font(.caption).foregroundStyle(Theme.textDim)
-                    }
-                } else {
-                    Text("Not in the catalog.").font(.caption).foregroundStyle(Theme.textDim)
-                }
-                Button("Open in Mobs") { tabRaw = Tab.mobs.rawValue }.buttonStyle(OutlineButtonStyle())
-            } else {
-                Text("Nothing engaged - the mob you swing at appears here as soon as a hit lands.")
-                    .foregroundStyle(Theme.textDim).frame(minHeight: 120, alignment: .top)
-            }
-        }
-    }
-
-    // MARK: - DPS curve
-
-    private struct CurvePoint: Identifiable {
-        var id: Int
-        var t: Double
-        var dps: Double
-        var series: String
-    }
-
-    private func curve(_ tl: JSONValue) -> ([CurvePoint], Double) {
-        let events = tl["events"].array ?? []
-        let duration = max(1000.0, tl["durationMs"].double ?? 1000)
-        let bucketMs = max(1000.0, (duration / 60).rounded())
-        let n = Int((duration / bucketMs).rounded(.up)) + 1
-        var youPet = [Double](repeating: 0, count: n), pet = [Double](repeating: 0, count: n), incoming = [Double](repeating: 0, count: n)
-        for e in events {
-            let b = dpsBucketIndex(t: e["t"].double ?? 0, bucketMs: bucketMs, count: n)
-            let amt = e["amount"].double ?? 0
-            switch e["kind"].string {
-            case "you": youPet[b] += amt
-            case "pet": youPet[b] += amt; pet[b] += amt
-            case "enemy": incoming[b] += amt
-            default: break
-            }
-        }
-        // 5 s rolling: the sum over the buckets covering the last five seconds, divided by 5.
-        let win = max(1, Int((5000 / bucketMs).rounded()))
-        var out: [CurvePoint] = []
-        var peak = 0.0
-        var id = 0
-        for (name, arr) in [("you + pet", youPet), ("pet", pet), ("incoming", incoming)] {
-            for i in 0..<n {
-                let lo = max(0, i - win + 1)
-                let sum = arr[lo...i].reduce(0, +)
-                let dps = sum / (Double(i - lo + 1) * bucketMs / 1000)
-                if name == "you + pet" { peak = max(peak, dps) }
-                out.append(CurvePoint(id: id, t: Double(i) * bucketMs / 1000, dps: dps, series: name))
-                id += 1
-            }
-        }
-        return (out, peak)
-    }
-
-    private var dpsCurveCard: some View {
-        let tl = poller.snapshot["timeline"]
-        let (points, peak) = tl.isNull ? ([], 0) : curve(tl)
-        return Card("DPS over time", trailing: AnyView(Text(peak > 0 ? "\(Int(peak.rounded())) dps peak" : "").font(.caption).foregroundStyle(Theme.gold))) {
-            if points.isEmpty {
-                Text("The curve draws from the selected fight's timeline.").foregroundStyle(Theme.textDim).frame(height: 120)
-            } else {
-                Chart(points) { p in
-                    if p.series == "you + pet" {
-                        AreaMark(x: .value("t", p.t), y: .value("dps", p.dps)).foregroundStyle(Theme.gold.opacity(0.18))
-                    }
-                    LineMark(x: .value("t", p.t), y: .value("dps", p.dps), series: .value("s", p.series))
-                        .foregroundStyle(by: .value("s", p.series))
-                        .lineStyle(StrokeStyle(lineWidth: p.series == "you + pet" ? 2 : 1))
-                }
-                .chartForegroundStyleScale(["you + pet": Theme.gold, "pet": Theme.blue, "incoming": Theme.red])
-                .chartXAxis { AxisMarks(values: .automatic(desiredCount: 5)) { v in AxisValueLabel { if let s = v.as(Double.self) { Text(clock(s)) } } } }
-                .chartLegend(position: .bottom)
-                .frame(height: 180)
-                Text("5s rolling").font(.caption2).foregroundStyle(Theme.textFaint)
-            }
-        }
-    }
 
     // MARK: - Recent drops
 

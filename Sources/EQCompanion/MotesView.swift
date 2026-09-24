@@ -41,15 +41,7 @@ struct MotesView: View {
     // MARK: - The fold
 
     private func refold() {
-        let events = LootEvent.parse(lootSnap.state)
-        let kills = KillRecord.index(KillRecord.parse(killSnap.state))
-        let levels = MoteStats.conLevels(conSnap.state)
-        let data = GameData.shared
-        rows = MoteStats.fold(events: events, kills: kills, conLevels: levels) { name in
-            let m = data.mob(named: name)
-            return MoteStats.MobFacts(catalogLevel: m?.level, catalogZone: m?.zones.first,
-                                      dropsRareLoot: data.dropsRareLoot(name))
-        }
+        rows = MoteStats.rows(loot: lootSnap.state, kills: killSnap.state, consider: conSnap.state)
     }
 
     private var filtered: [MoteRow] {

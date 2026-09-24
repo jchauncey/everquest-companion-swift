@@ -136,4 +136,47 @@ final class MoteDataTests: XCTestCase {
         let lvlDesc = rows.sorted { MoteStats.compare($0, $1, key: "level", descending: true) }.map(\.mob)
         XCTAssertEqual(lvlDesc.last, "b", "and last descending too - nil is not a small number")
     }
+
+    // MARK: - The Overview breakdown
+
+    private func row(_ mob: String, tier: Int, motes: Int, kills: Int, grades: [String: Int] = [:]) -> MoteRow {
+        MoteRow(key: MobKey.of(mob) + "|" + String(tier), mob: mob, zone: "The Plane of Hate", tier: tier, level: nil,
+                named: false, kills: kills, corpses: motes, motes: motes, byGrade: grades, lastTs: 1)
+    }
+
+    func testTheBreakdownSumsRowsAndListsDifficultiesInLadderOrder() {
+        let b = MoteBreakdown.build([
+            row("a spite golem", tier: 3, motes: 9, kills: 20, grades: ["Lesser": 6, "": 3]),
+            row("an imp protector", tier: 3, motes: 6, kills: 12, grades: ["": 6]),
+            row("a fire giant", tier: ZoneTier.openWorld, motes: 7, kills: 40, grades: ["Minor": 7]),
+            row("a ghoul", tier: ZoneTier.unknown, motes: 1, kills: 0, grades: ["": 1]),
+            row("a rat", tier: 1, motes: 0, kills: 5),
+        ])
+        XCTAssertEqual(b.motes, 23)
+        XCTAssertEqual(b.kills, 77)
+        XCTAssertEqual(b.tiers.map(\.tier), [ZoneTier.openWorld, 1, 3, ZoneTier.unknown],
+                       "open world first, then the ladder, then not stated; a tier with kills and no motes stays")
+        XCTAssertEqual(b.tiers.first { $0.tier == 3 }?.motes, 15)
+        XCTAssertEqual(b.tiers.first { $0.tier == 3 }?.kills, 32)
+        XCTAssertEqual(b.grades.map(\.grade), ["Minor", "Lesser", ""], "ladder order")
+        XCTAssertEqual(b.grades.map(\.motes), [7, 6, 10])
+        XCTAssertEqual(b.top.map(\.mob), ["a spite golem", "a fire giant", "an imp protector"])
+    }
+
+    func testTheBestRateNeedsEnoughKillsToMeanSomething() {
+        let b = MoteBreakdown.build([
+            row("a spite golem", tier: 3, motes: 9, kills: 20),
+            row("a lucky rat", tier: 4, motes: 3, kills: 3),
+            row("a fire giant", tier: ZoneTier.openWorld, motes: 7, kills: 40),
+        ])
+        XCTAssertEqual(b.bestTier?.tier, 3, "D4's 1.00/kill over 3 kills is not a recommendation")
+        XCTAssertNil(MoteBreakdown.build([row("a lucky rat", tier: 4, motes: 3, kills: 3)]).bestTier)
+    }
+
+    func testAnEmptyLogIsAnEmptyBreakdown() {
+        let b = MoteBreakdown.build([])
+        XCTAssertTrue(b.isEmpty)
+        XCTAssertNil(b.perKill)
+        XCTAssertTrue(b.tiers.isEmpty)
+    }
 }
