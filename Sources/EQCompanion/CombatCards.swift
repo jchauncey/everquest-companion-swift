@@ -773,7 +773,7 @@ struct FightPicker: View {
         return (head.map { [$0] } ?? []) + days.flatMap(\.rows)
     }
 
-    var list: some View {
+    private var list: some View {
         let rows = listRows
         let grouped = scope == .fight ? days : []
         let headRow = scope == .fight ? head : (frozen ?? opts).head
