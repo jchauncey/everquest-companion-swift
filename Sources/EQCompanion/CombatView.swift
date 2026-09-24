@@ -1,7 +1,7 @@
 // THE COMBAT TAB — the Electron app's Combat surface, natively.
 //
-// SUBJECT, then LENS, in plain rows like the other tabs' headers: line 1 is WHAT AM I LOOKING AT
-// (the Fight/Overall scope fused to the encounter selector); line 2 is HOW AM I LOOKING AT IT
+// The header is one wrapping row of controls like the Motes and Gear tabs: WHAT AM I LOOKING AT
+// (the Fight/Overall scope, then the encounter selector), then HOW AM I LOOKING AT IT
 // (Dashboard/Timeline, the direction filter, whose damage).
 //
 // The body is one mob at a time: a strip of its numbers with your stance (CombatPayout.swift), then
@@ -268,67 +268,49 @@ struct CombatView: View {
 
     // MARK: - Header
 
-    /// Plain rows, like the other tabs' headers: the tab's name with WHAT (scope + fight), then HOW
-    /// (the lens). The fight's numbers and your stance live in the stats strip below, not here.
+    /// One wrapping row of controls, like the Motes and Gear tabs: WHAT (the scope and the fight)
+    /// then HOW (Dashboard/Timeline, the direction, whose damage). The fight's numbers and your
+    /// stance live in the stats strip below, not here.
     private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            subjectLine
-            lensLine
-        }
-    }
-
-    /// LINE 1 — SUBJECT. The scope toggle is fused tight against the encounter selector as ONE
-    /// unit, because scope is not a peer of anything: it only decides what that selector may LIST.
-    private var subjectLine: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "chart.bar.fill").foregroundStyle(Theme.gold)
-            Text("Combat").font(.title2.weight(.semibold))
-            HStack(spacing: 4) {
-                SegmentPicker(selection: Binding(get: { scope }, set: { setScope($0) }),
-                              options: [(CombatScope.fight, "Fight"), (.overall, "Overall")])
-                FightPicker(opts: opts,
-                            scope: scope,
-                            selection: selection,
-                            now: now,
-                            onSelect: { o in picked = o; setSelection(o.value) },
-                            loadHistory: loadFightHistory)
-                .disabled(hydrating)
+        FlowRow(spacing: 8, lineSpacing: 8) {
+            // The scope only decides what the fight selector may LIST, so the two sit together.
+            Picker("", selection: Binding(get: { scope }, set: { setScope($0) })) {
+                Text("Fight").tag(CombatScope.fight)
+                Text("Overall").tag(CombatScope.overall)
             }
-            .padding(.horizontal, 4).padding(.vertical, 2)
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.border))
-            .frame(maxWidth: 560, alignment: .leading)
-            Spacer(minLength: 0)
-        }
-    }
+            .pickerStyle(.segmented).frame(width: 150)
+            FightPicker(opts: opts,
+                        scope: scope,
+                        selection: selection,
+                        now: now,
+                        onSelect: { o in picked = o; setSelection(o.value) },
+                        loadHistory: loadFightHistory)
+            .disabled(hydrating)
 
-    /// LINE 2 — LENS, left to right in decreasing consequence: the view switch (the tab's own
-    /// navigation), the direction filter, then whose damage.
-    private var lensLine: some View {
-        HStack(spacing: 8) {
-            SegmentPicker(selection: Binding(get: { subTab }, set: { v in
+            Picker("", selection: Binding(get: { subTab }, set: { v in
                 if v == .timeline, noTimeline { return }
                 subTab = v
-            }), options: SubTab.allCases.map { ($0, $0.label) })
+            })) {
+                ForEach(SubTab.allCases, id: \.self) { Text($0.label).tag($0) }
+            }
+            .pickerStyle(.segmented).frame(width: 190)
             .help(noTimeline
                   ? "Timeline follows a single fight - it's kept for the live and recent encounters. The zone aggregate and older fights have no event ring."
                   : "")
 
             if subTab == .dashboard {
-                Divider().frame(height: 14).overlay(Theme.border)
-                SegmentPicker(selection: Binding(get: { mode }, set: { setMode($0) }),
-                              options: MeterMode.allCases.map { ($0, $0.label) })
+                Picker("", selection: Binding(get: { mode }, set: { setMode($0) })) {
+                    ForEach(MeterMode.allCases, id: \.self) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.segmented).frame(width: 270)
                 // Only the two SOURCE dimensions are scoped: the Incoming list is always "what is
                 // hitting You", and no roster changes that.
                 if mode != .incoming {
-                    Text(meterScope.label).font(.system(size: 10)).foregroundStyle(Theme.textFaint)
+                    Chip(text: meterScope == .group && snapshot["roster"]["seen"].bool != true
+                            ? "\(meterScope.label) (no roster yet)" : meterScope.label)
                         .help("Whose damage the meters show — Preferences → Combat")
-                    if meterScope == .group, snapshot["roster"]["seen"].bool != true {
-                        Text("(no roster yet)").font(.system(size: 10)).foregroundStyle(Theme.textFaint)
-                    }
                 }
             }
-
-            Spacer(minLength: 0)
         }
     }
 

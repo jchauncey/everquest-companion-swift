@@ -649,21 +649,19 @@ struct FightPicker: View {
             open = true
             if scope == .fight { Task { await readHistory() } }
         } label: {
-            HStack(spacing: 6) {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(trigger?.label ?? (scope == .fight ? "No fights yet" : "No zone sessions yet"))
-                        .font(.callout).foregroundStyle(Theme.text).lineLimit(1)
-                    if let t = trigger {
-                        Text(rowTiming(t, now))
-                            .font(.system(size: 10)).foregroundStyle(Theme.textFaint).lineLimit(1)
-                    }
+            // The same face as the other tabs' filter dropdowns (FilterMultiPicker): one line, bordered.
+            HStack(spacing: 5) {
+                Text(trigger?.label ?? (scope == .fight ? "No fights yet" : "No zone sessions yet")).lineLimit(1)
+                if let t = trigger {
+                    // The face drops the date the list shows: "15m ago · 1:14" is enough to know it.
+                    Text(rowTiming(t, now).components(separatedBy: " · ").suffix(2).joined(separator: " · "))
+                        .foregroundStyle(.secondary).lineLimit(1)
                 }
-                Image(systemName: "chevron.down").font(.system(size: 9)).foregroundStyle(Theme.textDim)
+                Image(systemName: "chevron.down").font(.system(size: 9)).opacity(0.7)
             }
-            .padding(.horizontal, 8).padding(.vertical, 3)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.bordered)
+        .fixedSize()
         .popover(isPresented: $open, arrowEdge: .bottom) { list }
     }
 
