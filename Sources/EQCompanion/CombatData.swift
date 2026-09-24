@@ -1438,3 +1438,14 @@ func mobSegment(_ seg: JSONValue, timeline: JSONValue, mob: String) -> JSONValue
     o["inDps"] = .double(inTotal / spanSec)
     return .object(o)
 }
+
+/// The pull's mob a selection names: the same name, else the same name without its instance number
+/// — the engine numbers spawns ("Cleric of Innoruuk (118)") by everything it has seen, and a fight
+/// rebuilt from the log numbers them afresh, so the two can disagree about the same mob. Else the
+/// biggest (the first).
+func pickMob(_ mobs: [String], want: String?) -> String? {
+    guard let w = want?.lowercased() else { return mobs.first }
+    if let hit = mobs.first(where: { $0.lowercased() == w }) { return hit }
+    let base = fightMobName(w)
+    return mobs.first { fightMobName($0.lowercased()) == base } ?? mobs.first
+}

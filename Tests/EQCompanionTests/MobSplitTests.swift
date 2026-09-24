@@ -59,6 +59,16 @@ final class MobSplitTests: XCTestCase {
         XCTAssertEqual(cut["events"].array?.count, 2)
     }
 
+    func testAMobIsFoundByNameEvenWhenTheInstanceNumbersDisagree() {
+        let mobs = ["an Evangelist of Hate", "an elite dragoon", "Cleric of Innoruuk"]
+        XCTAssertEqual(pickMob(mobs, want: "Cleric of Innoruuk (118)"), "Cleric of Innoruuk",
+                       "the list numbered the spawn; the rebuilt fight did not")
+        XCTAssertEqual(pickMob(["a mermaid (7)", "a mermaid (8)"], want: "a mermaid (8)"), "a mermaid (8)", "exact first")
+        XCTAssertEqual(pickMob(mobs, want: "AN ELITE DRAGOON"), "an elite dragoon")
+        XCTAssertEqual(pickMob(mobs, want: "a rat"), "an Evangelist of Hate", "unknown: the biggest")
+        XCTAssertEqual(pickMob(mobs, want: nil), "an Evangelist of Hate")
+    }
+
     func testThePickerListsAPullMobByMob() {
         let segs: [JSONValue] = [
             ["kind": "fight", "id": "e2", "name": "a rat", "dps": 10.0, "startTs": 2_000, "durationSec": 10.0],

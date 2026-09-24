@@ -132,6 +132,10 @@ enum MeterMode: String, CaseIterable, Hashable {
 enum CombatDrill: Hashable {
     /// a source's flat ability list (the meter drill). `name` is the identity that crosses fights.
     case entity(id: String, name: String)
+
+    /// Your own breakdown — by class, then ability by ability. Where the Outgoing meter opens:
+    /// "All" above it goes back to the ranked list of everyone.
+    static let you = CombatDrill.entity(id: "you", name: "You")
 }
 
 /// The dashboard's ANCHOR PANEL — the source meter at level 1 and, when drilled, one subject.

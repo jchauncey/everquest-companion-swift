@@ -33,7 +33,8 @@ struct CombatView: View {
     /// One preference, no per-surface chip (Preferences → Combat → "Whose damage the meters show").
     private var meterScope: MeterScope { MeterScope.preferred }
     @State private var showUnparsed = false
-    @State private var drill: CombatDrill?
+    /// Opens on your own breakdown (CombatDrill.you), not the ranked list.
+    @State private var drill: CombatDrill? = .you
     /// The row last picked from the fight list: its start and length bound the fight's own log lines.
     @State private var picked: ScopeOption?
     /// A finished fight's own lines, read back from the log file (the engine's `log.window`).
@@ -60,6 +61,8 @@ struct CombatView: View {
 
     /// What this surface is showing — the scope picks which of the two selections is in force.
     private var selection: String { scope == .fight ? fightSelection : zoneSelection }
+    /// The selection's fight, without the mob a pull was picked by (`fightId#mob` → `fightId`).
+    private var selectedFight: String { splitMobSelection(selection).fight }
 
     private var snapshot: JSONValue { poller.snapshot }
     /// The selected fight as the engine reports it — the whole pull.
@@ -79,8 +82,7 @@ struct CombatView: View {
     private var mob: String? {
         guard !mobs.isEmpty else { return nil }
         let want = splitMobSelection(selection).mob ?? mobChoice
-        if let w = want, let hit = mobs.first(where: { $0.name.lowercased() == w.lowercased() }) { return hit.name }
-        return mobs.first?.name
+        return pickMob(mobs.map(\.name), want: want)
     }
     private var timeline: JSONValue { snapshot["timeline"] }
     /// During the startup replay the engine is folding the whole log, so every snapshot's
@@ -126,8 +128,10 @@ struct CombatView: View {
             guard let h = opts.head, !h.live else { return nil }
             return h
         }
-        if let p = picked, p.value == selection { return p }
-        return opts.rest.first { $0.value == selection }
+        // By the FIGHT: choosing another mob of a pull picked mob-by-mob rewrites the selection's mob
+        // part, and the fight must stay found — an older fight is only in `picked`, not the live window.
+        if let p = picked, splitMobSelection(p.value).fight == selectedFight { return p }
+        return opts.rest.first { splitMobSelection($0.value).fight == selectedFight }
     }
 
     /// The fight on screen's first and last instants: the finished fight's row, or the open fight's
@@ -191,7 +195,7 @@ struct CombatView: View {
             }
             .padding(12)
             .background(Theme.background)
-            .task(id: "\(selection)|\(maxSegments)|\(model.epoch ?? 0)") {
+            .task(id: "\(selectedFight)|\(maxSegments)|\(model.epoch ?? 0)") {
                 // The sentinel is sent as *no* selectedId, so the engine re-resolves it every
                 // tick (open fight → that fight; none open → the most recent finalized one).
                 poller.selectedId = selection == combatLiveSelection ? nil : splitMobSelection(selection).fight
@@ -206,7 +210,7 @@ struct CombatView: View {
                 poller.digest = true
                 await poller.run(model)
             }
-            .task(id: "\(showUnparsed)|\(selection)|\(model.epoch ?? 0)") {
+            .task(id: "\(showUnparsed)|\(selectedFight)|\(model.epoch ?? 0)") {
                 // `showUnparsed` is an engine-side filter (it runs BEFORE the ring is sliced), so
                 // it cannot be answered client-side. The shared poller carries no such option, so
                 // the toggle runs its own thin poll and only while it is on.
@@ -492,7 +496,7 @@ struct CombatView: View {
     /// …and the one navigation that makes a drill meaningless: the three directions are three
     /// different lists of subjects, so a token carried sideways means nothing where it lands.
     private func setMode(_ m: MeterMode) {
-        drill = nil
+        drill = m == .out ? .you : nil
         mode = m
     }
 
