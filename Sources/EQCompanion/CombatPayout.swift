@@ -159,6 +159,8 @@ struct StatModifier: Identifiable {
     var id: Int { slot }
 }
 
+/// The headline cards, spread across the width in the Leveling tab's style (`BigStat` /
+/// `AccentCard`): each its own accent colour and icon, all one height.
 struct CombatStatsStrip: View {
     var seg: JSONValue
     var payout: FightPayout?
@@ -171,18 +173,34 @@ struct CombatStatsStrip: View {
     /// Whose numbers these are: the mob's name, for the labels.
     var subject: String?
 
-    static let height: CGFloat = 64
+    private static let purple = Color(hex: 0xb07fd0)
 
     var body: some View {
         let own = ownDamage(seg)
-        FlowLayout(spacing: 8) {
-            dpsTile
-            tile(CFmt.num(own.you + own.pet), own.pet > 0 ? "your damage + pet" : "your damage",
-                 own.pet > 0 ? "You \(CFmt.num(own.you)) · pet \(CFmt.num(own.pet))" : "Your own damage")
-            if !classes.isEmpty { classTile }
-            tile(CFmt.num(seg["inTotal"].double ?? 0), subject == nil ? "damage taken" : "it did to you",
-                 subject.map { "Damage \($0) landed on you" } ?? "Damage this fight landed on you")
-            tile(expValue, expLabel, expHelp)
+        let secs = max(1, seg["durationSec"].double ?? 0)
+        HStack(alignment: .top, spacing: 12) {
+            dpsCard
+            card(CFmt.num(own.you + own.pet), own.pet > 0 ? "your damage + pet" : "your damage",
+                 sub: own.pet > 0 ? "you \(CFmt.num(own.you)) · pet \(CFmt.num(own.pet))" : "no pet",
+                 color: Theme.blue, icon: "person.fill")
+            if !classes.isEmpty { classCard }
+            card(CFmt.num(seg["inTotal"].double ?? 0), subject == nil ? "damage taken" : "it did to you",
+                 sub: "\(CFmt.rate((seg["inTotal"].double ?? 0) / secs)) at you",
+                 color: CombatColor.enemy, icon: "shield.lefthalf.filled")
+                .help(subject.map { "Damage \($0) landed on you" } ?? "Damage this fight landed on you")
+            card(expValue, "experience", sub: expSub, color: Theme.green, icon: "star.fill")
+                .help(expHelp)
+        }
+        // One height for the row: the tallest card's, the others stretched to it.
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func card(_ value: String, _ label: String, sub: String?, color: Color, icon: String) -> some View {
+        AccentCard(color: color, icon: icon, fill: true) {
+            Text(value).font(.system(size: 26, weight: .semibold)).foregroundStyle(color).monospacedDigit()
+                .lineLimit(1).minimumScaleFactor(0.6)
+            Text(label).font(.callout).foregroundStyle(Theme.text).lineLimit(1)
+            if let sub { Text(sub).font(.caption).foregroundStyle(Theme.textDim).lineLimit(1) }
         }
     }
 
@@ -192,59 +210,41 @@ struct CombatStatsStrip: View {
         return p.expGains > 0 ? "×\(p.expGains)" : "–"
     }
 
-    private var expLabel: String {
-        guard let p = payout, p.aa > 0 else { return "experience" }
-        return "experience · +\(p.aa) AA"
+    /// The kills behind it, and any ability points they gave.
+    private var expSub: String? {
+        guard let p = payout else { return "reading the log" }
+        var parts: [String] = []
+        parts.append(p.kills == 0 ? "no kill logged" : "\(p.kills) kill\(p.kills == 1 ? "" : "s")")
+        if p.aa > 0 { parts.append("+\(p.aa) AA") }
+        return parts.joined(separator: " · ")
     }
 
     private var expHelp: String {
         guard let p = payout else { return "Reading the log…" }
         if p.kills == 0 { return "No kill of this mob was logged" }
-        let kills = "\(p.kills) kill\(p.kills == 1 ? "" : "s")"
-        if p.expGains == 0 { return "\(kills), no experience logged" }
-        return p.expPct == nil ? "\(kills); the log didn't state the percent" : kills
+        if p.expGains == 0 { return "No experience was logged for the kill" }
+        return p.expPct == nil ? "The log didn't state the percent" : "Experience from the kill"
     }
 
-    private func box<C: View>(width: CGFloat, @ViewBuilder _ content: () -> C) -> some View {
-        content()
-            .padding(.horizontal, 12).padding(.vertical, 8)
-            .frame(width: width, height: Self.height, alignment: .topLeading)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.paper))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-    }
-
-    private func tile(_ value: String, _ label: String, _ help: String) -> some View {
-        box(width: 132) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(value).font(.system(size: 20, weight: .semibold)).foregroundStyle(Theme.gold).monospacedDigit()
-                    .lineLimit(1).minimumScaleFactor(0.6)
-                Text(label).font(.caption).foregroundStyle(Theme.textDim).lineLimit(1).truncationMode(.middle)
-            }
-        }
-        .help(help)
-    }
-
-    /// The headline: dps with its total and length, and your modifiers under it.
-    private var dpsTile: some View {
-        box(width: modifiers.isEmpty ? 150 : 190) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(CFmt.num(seg["outDps"].double ?? 0)).font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(Theme.gold).monospacedDigit().lineLimit(1)
-                    Text("dps").font(.caption).foregroundStyle(Theme.textDim)
-                    if inCombat {
-                        Circle().fill(Theme.green).frame(width: 6, height: 6).help("In combat")
-                    }
+    /// The headline: dps with the fight's total and length, and your modifiers under it.
+    private var dpsCard: some View {
+        AccentCard(color: Theme.gold, icon: "flame.fill", fill: true) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(CFmt.num(seg["outDps"].double ?? 0)).font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(Theme.gold).monospacedDigit().lineLimit(1)
+                if inCombat {
+                    Circle().fill(Theme.green).frame(width: 7, height: 7).help("In combat")
                 }
-                Text("\(CFmt.num(seg["outTotal"].double ?? 0)) · \(CFmt.dur(seg["durationSec"].double ?? 0))")
-                    .font(.caption).foregroundStyle(Theme.textDim).monospacedDigit().lineLimit(1)
-                if !modifiers.isEmpty {
-                    HStack(spacing: 6) {
-                        ForEach(modifiers) { m in
-                            Text(m.value.prefix(1).uppercased() + m.value.dropFirst())
-                                .font(.system(size: 10, weight: .semibold)).foregroundStyle(m.color).lineLimit(1)
-                                .help("Modifier \(m.slot) - \(m.what): \(m.value)")
-                        }
+            }
+            Text("total dps").font(.callout).foregroundStyle(Theme.text)
+            Text("\(CFmt.num(seg["outTotal"].double ?? 0)) · \(CFmt.dur(seg["durationSec"].double ?? 0))")
+                .font(.caption).foregroundStyle(Theme.textDim).monospacedDigit().lineLimit(1)
+            if !modifiers.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(modifiers) { m in
+                        Text(m.value.prefix(1).uppercased() + m.value.dropFirst())
+                            .font(.caption.weight(.semibold)).foregroundStyle(m.color).lineLimit(1)
+                            .help("Modifier \(m.slot) - \(m.what): \(m.value)")
                     }
                 }
             }
@@ -252,29 +252,28 @@ struct CombatStatsStrip: View {
         .help("\(CFmt.num(seg["outTotal"].double ?? 0)) damage over \(CFmt.dur(seg["durationSec"].double ?? 0))")
     }
 
-    /// Your dps split by the class that did it: a stacked bar and a line per class.
-    private var classTile: some View {
-        box(width: 220) {
-            VStack(alignment: .leading, spacing: 3) {
-                GeometryReader { g in
-                    HStack(spacing: 1) {
-                        ForEach(classes) { c in
-                            Rectangle().fill(ClassColor.of(c.cls)).frame(width: max(2, g.size.width * c.pct / 100 - 1))
-                        }
+    /// Your dps split by the class that did it: a stacked bar and each class's dps.
+    private var classCard: some View {
+        AccentCard(color: Self.purple, icon: "chart.bar.fill", fill: true) {
+            FlowLayout(spacing: 8) {
+                ForEach(classes) { c in
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text(c.cls).font(.caption.weight(.semibold)).foregroundStyle(ClassColor.of(c.cls))
+                        Text(CFmt.num(c.dps)).font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(Theme.text).monospacedDigit()
                     }
+                    .help("\(c.cls): \(CFmt.num(c.total)) damage, \(CFmt.pct0(c.pct)) of yours" + (c.cls == otherClass ? " — procs, clicks and spells more than one of your classes has" : ""))
                 }
-                .frame(height: 5).clipShape(Capsule())
-                FlowLayout(spacing: 8) {
-                    ForEach(classes) { c in
-                        HStack(spacing: 3) {
-                            Text(c.cls).font(.system(size: 10, weight: .semibold)).foregroundStyle(ClassColor.of(c.cls))
-                            Text(CFmt.num(c.dps)).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.text).monospacedDigit()
-                        }
-                        .help("\(c.cls): \(CFmt.num(c.total)) damage, \(CFmt.pct0(c.pct)) of yours" + (c.cls == otherClass ? " — procs, clicks and spells more than one of your classes has" : ""))
-                    }
-                }
-                Text("dps by class").font(.caption).foregroundStyle(Theme.textDim)
             }
+            Text("dps by class").font(.callout).foregroundStyle(Theme.text)
+            GeometryReader { g in
+                HStack(spacing: 1) {
+                    ForEach(classes) { c in
+                        Rectangle().fill(ClassColor.of(c.cls)).frame(width: max(2, g.size.width * c.pct / 100 - 1))
+                    }
+                }
+            }
+            .frame(height: 5).clipShape(Capsule()).padding(.top, 4)
         }
     }
 }

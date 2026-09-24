@@ -134,17 +134,32 @@ struct BigStat: View {
     var icon: String? = nil
 
     var body: some View {
+        AccentCard(color: color, icon: icon) {
+            Text(value).font(.system(size: 30, weight: .semibold)).foregroundStyle(color).monospacedDigit()
+            Text(label).font(.callout).foregroundStyle(Theme.text)
+            if let s = sub { Text(s).font(.caption).foregroundStyle(Theme.textDim) }
+        }
+    }
+}
+
+/// BigStat's frame for any content: the accent-coloured border and left bar, the icon beside a
+/// leading column. For a headline card whose body is more than a value and two lines.
+struct AccentCard<Content: View>: View {
+    var color: Color = Theme.gold
+    var icon: String? = nil
+    /// Stretch to the height offered — so a row of cards can be one height (the row sized to its
+    /// tallest with `fixedSize(horizontal: false, vertical: true)`).
+    var fill = false
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
         HStack(alignment: .top, spacing: 10) {
             if let i = icon { Image(systemName: i).foregroundStyle(color).font(.title2).padding(.top, 4) }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(value).font(.system(size: 30, weight: .semibold)).foregroundStyle(color).monospacedDigit()
-                Text(label).font(.callout).foregroundStyle(Theme.text)
-                if let s = sub { Text(s).font(.caption).foregroundStyle(Theme.textDim) }
-            }
+            VStack(alignment: .leading, spacing: 2) { content() }
             Spacer(minLength: 0)
         }
         .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: fill ? .infinity : nil, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 8).fill(Theme.paper))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(color.opacity(0.5), lineWidth: 1))
         .overlay(alignment: .leading) { RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 3).padding(.vertical, 10) }
