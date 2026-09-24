@@ -35,6 +35,10 @@ struct CombatView: View {
     private var meterScope: MeterScope { MeterScope.preferred }
     @State private var showUnparsed = false
     @State private var drill: CombatDrill?
+    /// The row last picked from the fight list: its start and length bound the fight's own log lines.
+    @State private var picked: ScopeOption?
+    /// A finished fight's own lines, read back from the log file (the engine's `log.window`).
+    @State private var fightLog = FightLogLines()
     /// The live poll's window onto the fight list: the head row and the recent fights. The picker
     /// reads the whole history itself, on open (`loadFightHistory`).
     private let maxSegments = 100
@@ -68,12 +72,32 @@ struct CombatView: View {
     }
     private var now: Int64 { poller.now > 0 ? poller.now : nowMs() }
 
+    /// What the curve and mob cards draw from: the event ring when there is one, else the engine's
+    /// digest of it (a fight whose ring was dropped), read as a timeline. Null when neither exists.
+    private var detail: JSONValue {
+        if !timeline.isNull { return timeline }
+        return digestTimeline(snapshot["digest"], durationSec: segment["durationSec"].double ?? 0) ?? .null
+    }
+
+    /// The finished fight on screen, with its start and length — the head row between pulls, or the
+    /// row picked from the list. nil for the open fight and for zone sessions: those read the
+    /// engine's live log.
+    private var finishedFight: ScopeOption? {
+        guard scope == .fight else { return nil }
+        if selection == combatLiveSelection {
+            guard let h = opts.head, !h.live else { return nil }
+            return h
+        }
+        if let p = picked, p.value == selection { return p }
+        return opts.rest.first { $0.value == selection }
+    }
+
     var body: some View {
         NeedsEngine {
             VStack(spacing: 10) {
                 header
                 pane
-                CombatLogCard(lines: logLines, showUnparsed: $showUnparsed).frame(height: 210)
+                CombatLogCard(lines: logLines, showUnparsed: $showUnparsed, note: logNote).frame(height: 210)
             }
             .padding(12)
             .background(Theme.background)
@@ -87,6 +111,9 @@ struct CombatView: View {
                 // just while the Timeline pane is up. The engine caps a serialized timeline at 2k
                 // events and a ring-less selection returns null for free.
                 poller.timeline = true
+                // And the digest for a fight whose event ring the engine has dropped, so the curve and
+                // damage-by-mob still draw for it.
+                poller.digest = true
                 await poller.run(model)
             }
             .task(id: "\(showUnparsed)|\(selection)|\(model.epoch ?? 0)") {
@@ -96,6 +123,12 @@ struct CombatView: View {
                 guard showUnparsed else { unparsed.lines = []; return }
                 await unparsed.run(model, selectedId: selection == combatLiveSelection ? nil : selection)
             }
+            .task(id: "\(finishedFight.map { "\($0.startTs)|\($0.durationSec)" } ?? "")|\(model.epoch ?? 0)") {
+                // A finished fight's own lines, once per fight: the engine records its log ring only
+                // while following the game live, so an earlier fight's lines come from the file.
+                guard let f = finishedFight, f.startTs > 0 else { fightLog.clear(); return }
+                await fightLog.load(model, startTs: f.startTs, durationSec: f.durationSec)
+            }
             .onChange(of: noTimeline) { _, gone in
                 if gone, subTab == .timeline { subTab = .dashboard }
             }
@@ -103,7 +136,15 @@ struct CombatView: View {
     }
 
     private var logLines: [JSONValue] {
-        showUnparsed ? unparsed.lines : (snapshot["recent"].array ?? [])
+        if showUnparsed { return unparsed.lines }
+        if finishedFight != nil { return fightLog.lines }
+        return snapshot["recent"].array ?? []
+    }
+
+    private var logNote: String? {
+        guard !showUnparsed, finishedFight != nil else { return nil }
+        if fightLog.loading { return "reading the log…" }
+        return fightLog.truncated ? "from the log file · first \(fightLog.lines.count) lines" : "from the log file"
     }
 
     // MARK: - Header
@@ -129,7 +170,7 @@ struct CombatView: View {
                             scope: scope,
                             selection: selection,
                             now: now,
-                            onSelect: setSelection,
+                            onSelect: { o in picked = o; setSelection(o.value) },
                             loadHistory: loadFightHistory)
                 .disabled(hydrating)
             }
@@ -256,25 +297,42 @@ struct CombatView: View {
         }
     }
 
-    /// FOUR EQUAL panels: WHO, WHEN, WHAT FIRED, WHOM. Each cell owns its own scroll box, so no
-    /// panel can dictate the grid's size and the tab never grows a page-level scroll.
+    /// WHO, WHEN, WHAT FIRED, WHOM — and only the ones with something to say. A card with nothing
+    /// for this selection is left out rather than drawn as a large empty box: no per-event detail
+    /// (no ring and no digest) drops the curve and mob cards; no real procs drops Procs. Each cell
+    /// owns its own scroll box, so no panel can dictate the grid's size.
     private var dashboard: some View {
-        Grid(horizontalSpacing: 10, verticalSpacing: 10) {
-            GridRow {
-                CombatMeterCard(seg: segment, timeline: timeline, mode: mode,
-                                meterScope: meterScope, roster: snapshot["roster"],
-                                ringless: ringless, drill: $drill)
-                DpsOverTimeCard(timeline: timeline,
-                                live: isLiveSelection(opts.head, selection),
-                                noRing: ringless)
+        let hasDetail = !detail.isNull
+        let showProcs = procsHaveContent(segment["procs"])
+        let meter = CombatMeterCard(seg: segment, timeline: detail, mode: mode,
+                                    meterScope: meterScope, roster: snapshot["roster"],
+                                    ringless: ringless, drill: $drill)
+        return VStack(alignment: .leading, spacing: 6) {
+            if !hasDetail, segment["kind"].string != "zone" {
+                CombatNote("No per-event detail is kept for this fight, so its curve and damage-by-mob can't be drawn.")
             }
-            GridRow {
-                CombatProcsCard(seg: segment)
-                // The mob card's level-2 body renders inside the meter panel — so in the Healing
-                // dimension its rows are read-only rather than a click that opens nothing.
-                CombatMobCard(seg: segment, timeline: timeline, ringless: ringless,
-                              setDrill: mode == .heal ? nil : { drill = $0 },
-                              drill: drill)
+            Grid(horizontalSpacing: 10, verticalSpacing: 10) {
+                GridRow {
+                    meter
+                    if hasDetail {
+                        DpsOverTimeCard(timeline: detail,
+                                        live: isLiveSelection(opts.head, selection),
+                                        noRing: ringless)
+                    } else if showProcs {
+                        CombatProcsCard(seg: segment)
+                    }
+                }
+                if hasDetail {
+                    GridRow {
+                        if showProcs { CombatProcsCard(seg: segment) }
+                        // The mob card's level-2 body renders inside the meter panel — so in the Healing
+                        // dimension its rows are read-only rather than a click that opens nothing.
+                        CombatMobCard(seg: segment, timeline: detail, ringless: ringless,
+                                      setDrill: mode == .heal ? nil : { drill = $0 },
+                                      drill: drill)
+                            .gridCellColumns(showProcs ? 1 : 2)
+                    }
+                }
             }
         }
         .frame(maxHeight: .infinity)
@@ -349,5 +407,36 @@ final class UnparsedLog {
             }
             try? await Task.sleep(nanoseconds: 1_000_000_000)
         }
+    }
+}
+
+/// A finished fight's own lines, read back from the log file through `log.window`: the engine's
+/// log ring is only written while it follows the game live, so a fight from before this launch
+/// has nothing in memory. Read once per fight; the window pads a second either side.
+@MainActor
+@Observable
+final class FightLogLines {
+    var lines: [JSONValue] = []
+    var truncated = false
+    var loading = false
+    private var key = ""
+
+    func clear() { key = ""; lines = []; truncated = false; loading = false }
+
+    func load(_ model: AppModel, startTs: Int64, durationSec: Double) async {
+        let k = "\(startTs)|\(durationSec)"
+        guard k != key else { return }
+        key = k
+        lines = []
+        truncated = false
+        loading = true
+        defer { loading = false }
+        let to = startTs + Int64(durationSec * 1000) + 1000
+        guard let r = try? await model.client.request(Op.logWindow,
+                                                      ["from": .int(startTs - 1000), "to": .int(to), "limit": .int(3000)],
+                                                      deadline: 15),
+              key == k else { return }
+        lines = r["lines"].array ?? []
+        truncated = r["truncated"].bool ?? false
     }
 }

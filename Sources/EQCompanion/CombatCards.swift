@@ -522,7 +522,8 @@ struct CombatProcsCard: View {
     var body: some View {
         let procs = seg["procs"]
         let rows = procListRows(procs)
-        let poison = procs["poisonDamage"].array ?? []
+        // Only a coat's poison damage is a proc ledger; a caster's poison-typed spells are not.
+        let poison = procsShowPoison(procs) ? (procs["poisonDamage"].array ?? []) : []
         return CombatCard(title: "Procs", trailing: {
             if !rows.isEmpty {
                 Text(procSummaryHeader(procs)).font(.caption).foregroundStyle(Theme.textDim).monospacedDigit()
@@ -642,14 +643,20 @@ struct CombatMobCard: View {
 struct CombatLogCard: View {
     var lines: [JSONValue]
     @Binding var showUnparsed: Bool
+    /// Where the lines came from, when not the engine's live ring (a finished fight's own lines,
+    /// read back from the log file). nil for the live log.
+    var note: String? = nil
 
     var body: some View {
         CombatCard(title: "Combat log", trailing: {
+            if let note { Text(note).font(.caption).foregroundStyle(Theme.textFaint) }
             Toggle(isOn: $showUnparsed) { Text("show unparsed").font(.caption) }
                 .toggleStyle(.switch).controlSize(.mini).foregroundStyle(Theme.textDim)
         }) {
             if lines.isEmpty {
-                CombatNote("Waiting for combat…")
+                CombatNote(note == nil ? "Waiting for combat…"
+                           : note == "reading the log…" ? "Reading this fight's lines from the log…"
+                           : "No fight lines in the log for this fight.")
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -696,7 +703,9 @@ struct FightPicker: View {
     var scope: CombatScope
     var selection: String
     var now: Int64
-    var onSelect: (String) -> Void
+    /// The picked row itself: its id selects it, and its start and length let the view read the
+    /// fight's own lines from the log.
+    var onSelect: (ScopeOption) -> Void
     /// Every fight, for the history. nil when it could not be read: the live list stands in.
     var loadHistory: () async -> ScopeOptions? = { nil }
 
@@ -876,7 +885,7 @@ struct FightPicker: View {
     private func pickHighlighted() {
         let rows = listRows
         guard rows.indices.contains(highlighted) else { return }
-        onSelect(rows[highlighted].value)
+        onSelect(rows[highlighted])
         open = false
     }
 
@@ -890,7 +899,7 @@ struct FightPicker: View {
 
     private func row(_ o: ScopeOption, head: Bool, keyed: Bool = false) -> some View {
         Button {
-            onSelect(o.value)
+            onSelect(o)
             open = false
         } label: {
             HStack(alignment: .top, spacing: 8) {

@@ -77,12 +77,15 @@ final class CombatPoller {
     var selectedId: String?
     var timeline = false
     var maxSegments = 60
+    /// Ask for the selected fight's digest when its event ring is gone (engine FightDigest).
+    var digest = false
 
     func tick(_ model: AppModel) async {
         guard model.client.isReady else { return }
         var opts: [String: JSONValue] = ["maxSegments": .int(Int64(maxSegments))]
         if let s = selectedId { opts["selectedId"] = .string(s) }
         if timeline { opts["timeline"] = true }
+        if digest { opts["digest"] = true }
         do {
             let r = try await model.client.request(Op.combatSnapshot, ["opts": .object(opts)], deadline: 10)
             snapshot = r["snapshot"]

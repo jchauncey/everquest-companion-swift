@@ -33,7 +33,7 @@ final class LogWindowTests: XCTestCase {
         ], "chat inside the window is left out; the rat after it is not in it")
         XCTAssertEqual(got.lines.first?["role"].string, "you")
         XCTAssertEqual(got.lines[1]["role"].string, "enemy")
-        XCTAssertEqual(got.lines.first?["cat"].string, "damage")
+        XCTAssertEqual(got.lines.first?["cat"].string, "hit", "the short label the narrow column fits")
         XCTAssertFalse(got.truncated)
 
         let capped = try XCTUnwrap(LogWindow.read(log: log, from: from, to: to, limit: 2, clock: clock, character: "Zoddrick"))

@@ -85,6 +85,27 @@ enum LogWindow {
         if attacker == "you" || text.hasPrefix("You ") { role = "you" }
         else if target == "you" { role = "enemy" }
         else { role = "info" }
-        return ["ts": .int(ts), "cat": .string(payload.kind.rawValue), "role": .string(role), "text": .string(text)]
+        return ["ts": .int(ts), "cat": .string(category(payload.kind)), "role": .string(role), "text": .string(text)]
+    }
+
+    /// A short label for the log card's narrow category column, the live log's kind of word.
+    static func category(_ kind: Kind) -> String {
+        switch kind {
+        case .damage: return "hit"
+        case .miss: return "miss"
+        case .resist: return "resist"
+        case .heal, .healUnstated: return "heal"
+        case .castBegin, .otherCastBegin, .castResumed: return "cast"
+        case .castFizzle, .castInterrupted: return "fizzle"
+        case .death, .playerDeath: return "death"
+        case .specialAttack: return "special"
+        case .itemActivate, .aaActivate: return "use"
+        case .buffApply, .buffFade, .buffWearOff, .buffExpired, .spellEmote, .illusionFade: return "buff"
+        case .cc, .ccWake, .charm, .uncharm: return "cc"
+        case .poisonProc, .poisonCoat, .poisonDry: return "poison"
+        case .loot, .coin: return "loot"
+        case .expGain, .level, .aaGain: return "exp"
+        default: return String(kind.rawValue.prefix(8))
+        }
     }
 }

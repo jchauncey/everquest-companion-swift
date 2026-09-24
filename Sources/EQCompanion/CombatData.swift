@@ -480,6 +480,7 @@ struct MobBreakdown {
 /// Group OUTGOING instants (you + pet + group) by defender. One pass; misses/resists fold into
 /// the same row as damage-free counters.
 func groupByTarget(_ tl: JSONValue) -> MobBreakdown {
+    if let rows = tl["digestRows"].array { return groupDigestByTarget(rows, estimated: isApproximate(tl)) }
     let scale = sampleScale(tl)
     var order: [String] = []
     var byTarget: [String: MobRow] = [:]
@@ -642,6 +643,7 @@ struct TargetDetail {
 }
 
 func skillsForTarget(_ tl: JSONValue, target: String) -> TargetDetail {
+    if let rows = tl["digestRows"].array { return digestSkillsForTarget(rows, target: target, estimated: isApproximate(tl)) }
     let scale = sampleScale(tl)
     let want = target.lowercased()
     var order: [String] = []
@@ -1168,4 +1170,102 @@ func fightMatches(_ o: ScopeOption, _ query: String) -> Bool {
 func fightRows(_ rows: [ScopeOption], range: FightRange, query: String, now: Int64) -> [ScopeOption] {
     let since = now - range.ms
     return rows.filter { $0.startTs >= since && fightMatches($0, query) }
+}
+
+// MARK: - A fight digest, read as a timeline
+
+/// The engine's `FightDigest` (a finalized fight whose event ring is gone) in the shape the curve
+/// and mob cards read: its curve buckets become `events` (one per side per bucket, at the bucket's
+/// middle), and its per-target rows ride along as `digestRows` for `groupByTarget` and
+/// `skillsForTarget`. nil when there is no digest. Not for the Timeline pane: a digest has no
+/// instants to draw.
+func digestTimeline(_ digest: JSONValue, durationSec: Double) -> JSONValue? {
+    guard digest.object != nil, let curve = digest["curve"].array else { return nil }
+    let bucket = max(1, digest["bucketMs"].int64 ?? 1000)
+    let kinds = ["you", "pet", "member", "enemy"]
+    var events: [JSONValue] = []
+    for (i, c) in curve.enumerated() {
+        for (s, v) in (c.array ?? []).enumerated() where s < kinds.count {
+            let amount = v.int64 ?? 0
+            if amount > 0 {
+                events.append(["t": .int(Int64(i) * bucket + bucket / 2), "kind": .string(kinds[s]), "amount": .int(amount)])
+            }
+        }
+    }
+    return [
+        "durationMs": .int(max(1000, Int64(durationSec * 1000))),
+        "events": .array(events),
+        "digestRows": digest["rows"],
+        "truncated": .bool(digest["truncated"].bool ?? false),
+        "digest": .bool(true),
+    ]
+}
+
+/// `groupByTarget` over a digest's rows: one row per target, its lanes summed.
+func groupDigestByTarget(_ rows: [JSONValue], estimated: Bool) -> MobBreakdown {
+    var order: [String] = []
+    var byTarget: [String: MobRow] = [:]
+    var total = 0.0
+    for r in rows {
+        let name = r["target"].string ?? unknownTarget
+        let key = name.lowercased()
+        var row = byTarget[key] ?? {
+            order.append(key)
+            return MobRow(target: name, total: 0, hits: 0, crits: 0, misses: 0, resists: 0, pct: 0, share: 0)
+        }()
+        row.target = preferredLabel(row.target, name)
+        let t = r["total"].double ?? 0
+        row.total += t
+        row.hits += r["hits"].int ?? 0
+        row.crits += r["crits"].int ?? 0
+        row.misses += r["misses"].int ?? 0
+        row.resists += r["resists"].int ?? 0
+        total += t
+        byTarget[key] = row
+    }
+    var out = order.compactMap { byTarget[$0] }
+    out.sort { a, b in
+        if a.total != b.total { return a.total > b.total }
+        if a.hits != b.hits { return a.hits > b.hits }
+        return a.target < b.target
+    }
+    let maxTotal = max(1, out.map(\.total).max() ?? 1)
+    for i in out.indices {
+        out[i].pct = out[i].total / maxTotal * 100
+        out[i].share = total > 0 ? out[i].total / total * 100 : 0
+    }
+    return MobBreakdown(rows: out, total: total, estimated: estimated)
+}
+
+/// `skillsForTarget` over a digest's rows: that target's lanes as skill rows.
+func digestSkillsForTarget(_ rows: [JSONValue], target: String, estimated: Bool) -> TargetDetail {
+    let want = target.lowercased()
+    var skills: [SkillRow] = []
+    var total = 0.0, hits = 0, crits = 0, misses = 0, resists = 0
+    for r in rows where (r["target"].string ?? unknownTarget).lowercased() == want {
+        let row = SkillRow(name: r["lane"].string ?? "", category: r["category"].string ?? "",
+                           total: r["total"].double ?? 0, pct: 0,
+                           hits: r["hits"].int ?? 0, crits: r["crits"].int ?? 0,
+                           misses: r["misses"].int ?? 0, resists: r["resists"].int ?? 0,
+                           maxHit: r["maxHit"].int ?? 0, minHit: r["minHit"].int ?? 0, children: nil)
+        total += row.total; hits += row.hits; crits += row.crits; misses += row.misses; resists += row.resists
+        skills.append(row)
+    }
+    return TargetDetail(rows: groupSlay(rankRows(skills)), total: total, hits: hits, crits: crits,
+                        misses: misses, resists: resists, estimated: estimated)
+}
+
+// MARK: - Procs worth a card
+
+/// The poison-damage ledger is a coat's ledger: what a rogue's venoms dealt. The log types a
+/// caster's own poison spells (Envenomed Bolt, …) as poison too, and upstream counts those in the
+/// same ledger, where they read as procs they are not. So it is shown only when the selection had a
+/// coat on record.
+func procsShowPoison(_ procs: JSONValue) -> Bool {
+    !(procs["coats"].array ?? []).isEmpty || !(procs["combatAtEngage"].array ?? []).isEmpty
+}
+
+/// Does the Procs card have anything to show: a real proc, or a coat's poison damage.
+func procsHaveContent(_ procs: JSONValue) -> Bool {
+    !procListRows(procs).isEmpty || (procsShowPoison(procs) && !(procs["poisonDamage"].array ?? []).isEmpty)
 }
