@@ -93,7 +93,7 @@ public final class Fold {
 /// or any codec changes shape — a stale-format blob must read as "unusable, rescan", never as a
 /// subtly different world. The build-identity check on top of this lives with the caller; this
 /// number is for deliberate format breaks within one build lineage.
-public let foldCheckpointVersion = 2
+public let foldCheckpointVersion = 3
 
 extension Fold {
     /// The whole world at this instant: the Fold's own detectors and counters, every conforming
