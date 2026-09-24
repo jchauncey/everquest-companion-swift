@@ -132,8 +132,6 @@ enum MeterMode: String, CaseIterable, Hashable {
 enum CombatDrill: Hashable {
     /// a source's flat ability list (the meter drill). `name` is the identity that crosses fights.
     case entity(id: String, name: String)
-    /// everything you and your allies landed on ONE mob (driven by the Damage-by-mob card).
-    case target(String)
 }
 
 /// The dashboard's ANCHOR PANEL — the source meter at level 1 and, when drilled, one subject.
@@ -144,6 +142,9 @@ struct CombatMeterCard: View {
     var meterScope: MeterScope
     var roster: JSONValue
     var ringless: String
+    /// Colours your abilities by class and adds up your damage per class, in the drill. nil when the
+    /// loadout or the lanes' classes are not known yet.
+    var classes: ClassResolver? = nil
     @Binding var drill: CombatDrill?
     @State private var expanded: Set<String> = []
 
@@ -181,9 +182,6 @@ struct CombatMeterCard: View {
                 let pets = subject["kind"].string == "you" ? entities.filter { $0["kind"].string == "pet" } : []
                 let shown = (subject["total"].double ?? 0) + pets.reduce(0) { $0 + ($1["total"].double ?? 0) }
                 return panelTotals(shown: shown, total: base.total, dps: base.dps)
-            }
-            if case .target? = drill, !timeline.isNull, let t = targetName {
-                return panelTotals(shown: skillsForTarget(timeline, target: t).total, total: base.total, dps: base.dps)
             }
             return base
         }
@@ -243,11 +241,6 @@ struct CombatMeterCard: View {
 
     // MARK: crumb
 
-    private var targetName: String? {
-        if case .target(let t) = drill { return t }
-        return nil
-    }
-
     private func resolveSubject(id: String, name: String) -> JSONValue? {
         let pool = mode == .incoming ? (seg["incoming"].array ?? []) : entities
         // The id is tried first and always wins; the NAME is the fallback, because half these ids
@@ -278,7 +271,6 @@ struct CombatMeterCard: View {
         switch drill {
         case .entity(let id, let name):
             return resolveSubject(id: id, name: name)?["name"].string ?? name
-        case .target(let t): return "damage to \(t)"
         case nil: return ""
         }
     }
@@ -296,20 +288,25 @@ struct CombatMeterCard: View {
 
     @ViewBuilder
     private var outgoingBody: some View {
-        // A MOB drill replaces the source list entirely — this surface's own level.
-        if let t = targetName {
-            if timeline.isNull {
-                CombatNote(ringless)
-            } else {
-                targetBody(t)
-            }
-        } else if case .entity(let id, let name)? = drill, let subject = resolveSubject(id: id, name: name) {
+        if case .entity(let id, let name)? = drill, let subject = resolveSubject(id: id, name: name) {
             let pets = subject["kind"].string == "you" ? entities.filter { $0["kind"].string == "pet" } : []
+            let kind = subject["kind"].string
+            if kind == "you", let r = classes {
+                let shares = classBreakdown(you: subject, pets: pets, resolver: r,
+                                            durationSec: seg["durationSec"].double ?? 0)
+                if !shares.isEmpty {
+                    Text("BY CLASS · you + pet").font(.system(size: 9, weight: .semibold)).foregroundStyle(Theme.textFaint)
+                    ClassDpsBars(shares: shares)
+                    Divider().overlay(Theme.border).padding(.vertical, 3)
+                }
+            }
             ForEach(nestedRows(subject, pets: pets)) { row in
                 switch row {
-                case .skill(let s): skillBar(s)
+                case .skill(let s):
+                    skillBar(s, cls: kind == "you" ? classes?.classOf(s) : kind == "pet" ? classes?.petClass : nil)
                 case .pet(let p):
-                    MeterBarRow(rank: nil, color: CombatColor.pet, pct: p.pct, name: p.name, tag: "pet",
+                    MeterBarRow(rank: nil, color: classes.map { ClassColor.of($0.petClass) } ?? CombatColor.pet,
+                                pct: p.pct, name: p.name, tag: classes.map { "pet · \($0.petClass)" } ?? "pet",
                                 right: "\(CFmt.num(p.total)) · \(CFmt.rate(p.dps))") {
                         drill = .entity(id: p.id, name: p.name)
                     }
@@ -392,30 +389,6 @@ struct CombatMeterCard: View {
         }
     }
 
-    /// Everything you and your allies landed on ONE mob — the same flat, category-coloured rows
-    /// the entity drill uses. You + pet are combined; the header says so.
-    @ViewBuilder
-    private func targetBody(_ target: String) -> some View {
-        let d = skillsForTarget(timeline, target: target)
-        let a = d.estimated ? "~" : ""
-        let share = (seg["outTotal"].double ?? 0) > 0 ? d.total / (seg["outTotal"].double ?? 1) * 100 : 0
-        VStack(alignment: .leading, spacing: 3) {
-            Text("\(a)\(CFmt.num(d.total)) dealt to \(target)")
-                .font(.caption.weight(.semibold)).foregroundStyle(CombatColor.enemy)
-            Text("\(CFmt.pct0(share)) of this segment's outgoing · \(a)\(d.hits) hits"
-                 + (d.crits > 0 ? " · \(a)\(d.crits) crit" : "")
-                 + (d.misses > 0 ? " · \(a)\(d.misses) avoided" : "")
-                 + (d.resists > 0 ? " · \(a)\(d.resists) resisted" : "")
-                 + " · you + pet combined")
-                .font(.system(size: 10)).foregroundStyle(Theme.textDim)
-            if d.rows.isEmpty {
-                CombatNote("Nothing landed on this mob in the selected segment.")
-            } else {
-                ForEach(d.rows) { s in skillBar(s, approx: d.estimated) }
-            }
-        }
-    }
-
     @ViewBuilder
     private var incomingHeals: some View {
         if (seg["incomingHealTotal"].double ?? 0) > 0 {
@@ -464,7 +437,8 @@ struct CombatMeterCard: View {
         }
     }
 
-    private func skillBar(_ s: SkillRow, indent: CGFloat = 0, approx: Bool = false) -> some View {
+    /// `cls`: the class the row belongs to, which then colours and tags it instead of its category.
+    private func skillBar(_ s: SkillRow, indent: CGFloat = 0, approx: Bool = false, cls: String? = nil) -> some View {
         let a = approx ? "~" : ""
         var stats: [String] = []
         if s.hits > 0 { stats.append("\(a)\(s.hits)x") }
@@ -473,10 +447,10 @@ struct CombatMeterCard: View {
         if s.resists > 0 { stats.append("\(a)\(s.resists) resist") }
         if s.maxHit > 0 { stats.append(s.minHit == s.maxHit ? "\(s.maxHit)" : "\(s.minHit)-\(s.maxHit)") }
         return MeterBarRow(rank: nil,
-                           color: CombatColor.category(s.category),
+                           color: cls.map(ClassColor.of) ?? CombatColor.category(s.category),
                            pct: s.pct,
                            name: s.children == nil ? s.name : "\(s.name) · \(s.children!.count) skills",
-                           tag: nil,
+                           tag: cls,
                            badges: [(stats.joined(separator: " · "), Theme.textDim)],
                            right: "\(a)\(CFmt.num(s.total))",
                            indent: indent)
@@ -488,11 +462,7 @@ struct CombatMeterCard: View {
         var lines: [String] = []
         let t = shownTotals
         lines.append("\(seg["name"].string ?? "") · \(CFmt.rate(t.dps)) · \(CFmt.num(t.total)) · \(CFmt.dur(seg["durationSec"].double ?? 0))")
-        if let target = targetName, !timeline.isNull {
-            for (i, s) in skillsForTarget(timeline, target: target).rows.enumerated() {
-                lines.append("\(i + 1). \(s.name)  \(CFmt.num(s.total))  \(CFmt.pct0(s.pct))")
-            }
-        } else if case .entity(let id, let name)? = drill, let subject = resolveSubject(id: id, name: name) {
+        if case .entity(let id, let name)? = drill, let subject = resolveSubject(id: id, name: name) {
             for (i, s) in flattenSkills(subject).enumerated() {
                 lines.append("\(i + 1). \(s.name)  \(CFmt.num(s.total))  \(CFmt.pct0(s.pct))")
             }

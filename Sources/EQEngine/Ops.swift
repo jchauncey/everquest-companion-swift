@@ -55,6 +55,9 @@ public enum Ops {
     /// is enforced. A bound on a stranger's request, not a tuned number.
     public static let maxMobLevelAsks = 32
 
+    /// Spell → classes for `combat.laneClasses`, built once from the shared spell DB on first ask.
+    static let spellClasses: SpellClassIndex = spellClassIndex(SpellDb.shared())
+
     /// The most hits this engine will rank, whoever asks.
     static let maxFightHits: Int64 = 500
 
@@ -257,6 +260,15 @@ public enum Ops {
                 return error(id, .notFound, "no fight was found in the log at that time")
             }
             return reply(id, ["timeline": tl])
+
+        // Swift-only: which classes can land each combat lane ({lane, category}), in order — the
+        // combo module's own spell and skill tables. The Combat tab colours your abilities by class.
+        case "combat.laneClasses":
+            let lanes = params["lanes"].array ?? []
+            return reply(id, ["classes": .array(lanes.map { l in
+                .array(laneClassCandidates(Ops.spellClasses, lane: l["lane"].string ?? "",
+                                           category: l["category"].string ?? "").map { .string($0) })
+            })])
 
         // Swift-only: a pet's own side of a fight between two instants — its casts, resists, damage
         // taken, heals and buffs, matched by its name (PetLog.swift).
@@ -722,6 +734,9 @@ extension Ops {
             return .object(required: ["from": .integer, "to": .integer], optional: ["limit": .integer], open: false)
         case "combat.replay":
             return .object(required: ["from": .integer, "to": .integer], optional: [:], open: false)
+        case "combat.laneClasses":
+            let lane = Shape.object(required: ["lane": .string, "category": .string], optional: [:], open: false)
+            return .object(required: ["lanes": .array(lane)], optional: [:], open: false)
         case "combat.petLog":
             return .object(required: ["from": .integer, "to": .integer, "pet": .string], optional: [:], open: false)
         case "combat.rewards":

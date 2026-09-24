@@ -6,7 +6,8 @@ import EQCompanionCore
 final class MobSplitTests: XCTestCase {
     private func ev(_ kind: String, _ target: String?, _ lane: String, _ amount: Int, t: Int, crit: Bool = false,
                     outcome: String? = nil) -> JSONValue {
-        var o: [String: JSONValue] = ["kind": .string(kind), "lane": .string(lane), "category": "melee",
+        var o: [String: JSONValue] = ["kind": .string(kind), "lane": .string(lane),
+                                      "category": .string(lane == "Mana Shock" ? "spell" : "melee"),
                                       "amount": .int(Int64(amount)), "crit": .bool(crit), "t": .int(Int64(t))]
         if let target { o["target"] = .string(target) }
         if let outcome { o["outcome"] = .string(outcome) }
@@ -48,6 +49,7 @@ final class MobSplitTests: XCTestCase {
         XCTAssertEqual(you["total"].double, 500)
         XCTAssertEqual(you["misses"].int, 1)
         XCTAssertEqual((you["skills"].array ?? []).map { $0["name"].string ?? "" }, ["Mana Shock", "Melee"])
+        XCTAssertEqual(flattenSkills(you).map(\.category).sorted(), ["melee", "spell"], "a spell stays a spell")
         let other = mobSegment(fight, timeline: timeline, mob: "Shellara Ebbhunter")
         XCTAssertEqual((other["entities"].array ?? []).map { $0["name"].string ?? "" }, ["Group", "You"])
     }

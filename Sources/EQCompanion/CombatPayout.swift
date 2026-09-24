@@ -152,6 +152,8 @@ final class FightRewardsLoader {
 struct CombatStatsStrip: View {
     var seg: JSONValue
     var payout: FightPayout?
+    /// Your and your pet's damage by class (CombatClasses.swift); empty when the loadout is unknown.
+    var classes: [ClassShare] = []
     /// Whose numbers these are: the mob's name, for the labels.
     var subject: String?
 
@@ -162,8 +164,9 @@ struct CombatStatsStrip: View {
                  "\(CFmt.num(seg["outTotal"].double ?? 0)) damage over \(CFmt.dur(seg["durationSec"].double ?? 0))")
             tile(CFmt.num(own.you + own.pet), own.pet > 0 ? "your damage + pet" : "your damage",
                  own.pet > 0 ? "You \(CFmt.num(own.you)) · pet \(CFmt.num(own.pet))" : "Your own damage")
-            tile(CFmt.num(seg["inTotal"].double ?? 0), subject.map { "\($0) did to you" } ?? "damage taken",
-                 "Damage this \(subject == nil ? "fight" : "mob") landed on you")
+            if !classes.isEmpty { classTile }
+            tile(CFmt.num(seg["inTotal"].double ?? 0), subject == nil ? "damage taken" : "it did to you",
+                 subject.map { "Damage \($0) landed on you" } ?? "Damage this fight landed on you")
             tile(expValue, expLabel, expHelp)
             lootTile
         }
@@ -195,10 +198,38 @@ struct CombatStatsStrip: View {
             Text(label).font(.caption).foregroundStyle(Theme.textDim).lineLimit(1).truncationMode(.middle)
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
-        .frame(width: 150, height: 58, alignment: .leading)
+        .frame(width: 132, height: 58, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 8).fill(Theme.paper))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
         .help(help)
+    }
+
+    /// Your dps split by the class that did it: a stacked bar and a line per class.
+    private var classTile: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            GeometryReader { g in
+                HStack(spacing: 1) {
+                    ForEach(classes) { c in
+                        Rectangle().fill(ClassColor.of(c.cls)).frame(width: max(2, g.size.width * c.pct / 100 - 1))
+                    }
+                }
+            }
+            .frame(height: 5).clipShape(Capsule())
+            FlowLayout(spacing: 8) {
+                ForEach(classes) { c in
+                    HStack(spacing: 3) {
+                        Text(c.cls).font(.system(size: 10, weight: .semibold)).foregroundStyle(ClassColor.of(c.cls))
+                        Text(CFmt.num(c.dps)).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.text).monospacedDigit()
+                    }
+                    .help("\(c.cls): \(CFmt.num(c.total)) damage, \(CFmt.pct0(c.pct)) of yours" + (c.cls == otherClass ? " — procs, clicks and spells more than one of your classes has" : ""))
+                }
+            }
+            Text("dps by class").font(.caption).foregroundStyle(Theme.textDim)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .frame(width: 220, height: 58, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.paper))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
     }
 
     /// The corpse: each drop and its count, sold ones dim, and the coin.
@@ -235,7 +266,7 @@ struct CombatStatsStrip: View {
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 6)
-        .frame(width: 260, height: 58, alignment: .topLeading)
+        .frame(width: 240, height: 58, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 8).fill(Theme.paper))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
     }

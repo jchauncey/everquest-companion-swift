@@ -63,6 +63,16 @@ func castCandidates(_ index: SpellClassIndex, _ spell: String) -> [ClassAbbr] {
     return comboTables.abilities[key] ?? []
 }
 
+/// The classes that can land a combat lane: a melee lane by its skill (`Kick`, `Cleave` — plain
+/// `Melee` is every class's and resolves to none), anything else as a cast (`castCandidates`).
+/// NOT A PORT: the Combat tab colours your abilities by class with it.
+public func laneClassCandidates(_ index: SpellClassIndex, lane: String, category: String) -> [ClassAbbr] {
+    if category == "melee" { return comboTables.skills[lane] ?? [] }
+    // A proc lane is named for the spell that grants it: "Vampiric Embrace · proc".
+    let spell = lane.hasSuffix(" · proc") ? String(lane.dropLast(" · proc".count)) : lane
+    return castCandidates(index, spell)
+}
+
 /// One observation, or `nil` when the event says nothing about class.
 private func make(_ ev: Event, _ source: String, _ label: String, _ candidates: [ClassAbbr]) -> ClassObservation? {
     if candidates.isEmpty { return nil }

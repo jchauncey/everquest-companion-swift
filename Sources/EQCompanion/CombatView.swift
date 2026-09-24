@@ -48,6 +48,9 @@ struct CombatView: View {
     @State private var rewards = FightRewardsLoader()
     /// The pet's casts, damage taken, heals and buffs in the fight on screen (`combat.petLog`).
     @State private var petLog = PetLogLoader()
+    /// Your loadout over time (the `combo` module) and which classes can land each of your lanes.
+    @State private var combo = ModuleSnapshot()
+    @State private var laneClasses = LaneClassesLoader()
     /// The live poll's window onto the fight list: the head row and the recent fights. The picker
     /// reads the whole history itself, on open (`loadFightHistory`).
     private let maxSegments = 100
@@ -148,6 +151,23 @@ struct CombatView: View {
         return fightPayout(rewards.raw, mobs: names, fightEnd: span.end, coin: mobs.isEmpty)
     }
 
+    /// Your source row in what is on screen.
+    private var you: JSONValue? { (segment["entities"].array ?? []).first { $0["kind"].string == "you" } }
+    private var yourLanes: [(lane: String, category: String)] { you.map(sourceLanes) ?? [] }
+
+    /// Your abilities' classes, from the loadout you had when the fight started. nil until the
+    /// loadout is known (it needs a /who or enough casts).
+    private var classes: ClassResolver? {
+        let loadout = loadoutClasses(combo.state, at: fightSpan?.start)
+        return loadout.isEmpty ? nil : ClassResolver(loadout: loadout, lanes: laneClasses.known)
+    }
+
+    private var classShares: [ClassShare] {
+        guard scope == .fight, let r = classes else { return [] }
+        let pets = (segment["entities"].array ?? []).filter { $0["kind"].string == "pet" }
+        return classBreakdown(you: you, pets: pets, resolver: r, durationSec: segment["durationSec"].double ?? 0)
+    }
+
     /// The fight on screen is still open (its window grows).
     private var fightIsOpen: Bool {
         scope == .fight && selection == combatLiveSelection && opts.head?.live == true
@@ -200,6 +220,12 @@ struct CombatView: View {
                 // while following the game live, so an earlier fight's lines come from the file.
                 guard let f = finishedFight, f.startTs > 0 else { fightLog.clear(); replay.clear(); return }
                 await fightLog.load(model, startTs: f.startTs, durationSec: f.durationSec)
+            }
+            .task(id: "combo|\(model.moduleSeqs["combo"] ?? 0)|\(model.epoch ?? 0)") {
+                await combo.refresh(model, module: "combo")
+            }
+            .task(id: "\(yourLanes.map { ClassResolver.key($0.lane, $0.category) }.joined(separator: ","))|\(model.epoch ?? 0)") {
+                await laneClasses.ensure(model, yourLanes)
             }
             .task(id: "\(petTaskKey)|\(model.epoch ?? 0)") {
                 guard let s = fightSpan, let name = segmentPet(fightSegment)?["name"].string else { petLog.clear(); return }
@@ -436,11 +462,11 @@ struct CombatView: View {
         let showProcs = procsHaveContent(segment["procs"])
         let meter = CombatMeterCard(seg: segment, timeline: detail, mode: mode,
                                     meterScope: meterScope, roster: snapshot["roster"],
-                                    ringless: ringless, drill: $drill)
+                                    ringless: ringless, classes: classes, drill: $drill)
         return VStack(alignment: .leading, spacing: 8) {
             if let note = detailNote { CombatNote(note) }
             if scope == .fight {
-                CombatStatsStrip(seg: segment, payout: payout,
+                CombatStatsStrip(seg: segment, payout: payout, classes: classShares,
                                  subject: mob ?? fightMobName(fightSegment["name"].string ?? ""))
             }
             Grid(horizontalSpacing: 10, verticalSpacing: 10) {
