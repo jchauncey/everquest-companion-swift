@@ -773,7 +773,7 @@ struct FightPicker: View {
         return (head.map { [$0] } ?? []) + days.flatMap(\.rows)
     }
 
-    private var list: some View {
+    var list: some View {
         let rows = listRows
         let grouped = scope == .fight ? days : []
         let headRow = scope == .fight ? head : (frozen ?? opts).head
@@ -795,7 +795,7 @@ struct FightPicker: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                         if let h = headRow {
-                            row(h, head: true, keyed: highlighted == 0).id(0)
+                            row(h, head: true, keyed: highlighted == 0).id(h.value)
                             Divider().overlay(Theme.border)
                         }
                         if scope == .fight {
@@ -806,7 +806,7 @@ struct FightPicker: View {
                             ForEach(sectionOffsets(grouped, first: headRow == nil ? 0 : 1), id: \.day.key) { s in
                                 Section {
                                     ForEach(Array(s.day.rows.enumerated()), id: \.element.value) { j, o in
-                                        row(o, head: false, keyed: highlighted == s.offset + j).id(s.offset + j)
+                                        row(o, head: false, keyed: highlighted == s.offset + j).id(o.value)
                                     }
                                 } header: {
                                     dayHeader(s.day)
@@ -815,13 +815,18 @@ struct FightPicker: View {
                         } else {
                             ForEach(Array((frozen ?? opts).rest.enumerated()), id: \.offset) { i, o in
                                 row(o, head: false, keyed: highlighted == i + (headRow == nil ? 0 : 1))
-                                    .id(i + (headRow == nil ? 0 : 1))
+                                    .id(o.value)
                             }
                         }
                     }
                 }
                 .frame(height: 380)
-                .onChange(of: highlighted) { _, i in proxy.scrollTo(i) }
+                // Rows are identified by their fight, never by their place in the list: a filter moves
+                // fights into places other fights held, and a lazy list keyed by place keeps the old rows.
+                .onChange(of: highlighted) { _, i in
+                    let rows = listRows
+                    if rows.indices.contains(i) { proxy.scrollTo(rows[i].value) }
+                }
             }
         }
         .padding(10)
