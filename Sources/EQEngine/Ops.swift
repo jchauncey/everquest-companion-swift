@@ -247,6 +247,20 @@ public enum Ops {
         // Swift-only: the attached log's own fight lines between two instants, read from disk
         // (LogWindow.swift). A finished fight from before this launch has no combat log in memory.
         // No log attached is `unavailable`; a window with no fight lines is an empty list.
+        // Swift-only: a finished fight's full timeline, rebuilt by folding its stretch of the log
+        // (CombatReplay.swift), for a fight whose ring the engine no longer keeps. `notFound` when
+        // the stretch replays to no fight starting near `from`.
+        case "combat.replay":
+            guard let log = world.mark().log else {
+                return error(id, .unavailable, "no log is attached")
+            }
+            guard let tl = CombatReplay.timeline(log: log, startTs: params["from"].int64 ?? 0,
+                                                 endTs: params["to"].int64 ?? 0, clock: EQLog.Clock.host(),
+                                                 character: Ingest.characterOf(log)) else {
+                return error(id, .notFound, "no fight was found in the log at that time")
+            }
+            return reply(id, ["timeline": tl])
+
         case "log.window":
             guard let log = world.mark().log else {
                 return error(id, .unavailable, "no log is attached")
@@ -678,6 +692,8 @@ extension Ops {
             return .object(required: ["rowId": .string], optional: [:], open: false)
         case "log.window":
             return .object(required: ["from": .integer, "to": .integer], optional: ["limit": .integer], open: false)
+        case "combat.replay":
+            return .object(required: ["from": .integer, "to": .integer], optional: [:], open: false)
         case "combat.snapshot":
             let opts = Shape.object(required: [:],
                                     optional: ["selectedId": .string, "showUnparsed": .boolean,

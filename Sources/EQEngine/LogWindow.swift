@@ -15,48 +15,62 @@ enum LogWindow {
     /// Read the fight lines stamped within [from, to] (epoch ms), at most `limit` of them.
     static func read(log: URL, from: Int64, to: Int64, limit: Int, clock: Clock,
                      character: String?) -> (lines: [JSONValue], truncated: Bool)? {
-        guard let fh = try? FileHandle(forReadingFrom: log) else { return nil }
-        defer { try? fh.close() }
-        guard let size = try? fh.seekToEnd(), size > 0 else { return ([], false) }
-
-        /// The first timestamped line at or after `offset`: its start and its ts.
-        func stamp(at offset: UInt64) -> (start: UInt64, ts: Int64)? {
-            var pos = offset
-            try? fh.seek(toOffset: pos)
-            guard var chunk = try? fh.read(upToCount: 8192), !chunk.isEmpty else { return nil }
-            if offset > 0 {
-                guard let nl = chunk.firstIndex(of: 0x0A) else { return nil }
-                pos += UInt64(nl - chunk.startIndex + 1)
-                chunk = chunk[(nl + 1)...]
-            }
-            var lineStart = pos
-            for line in chunk.split(separator: 0x0A, omittingEmptySubsequences: false) {
-                let ts = stampOf(Data(line))
-                if ts > 0 { return (lineStart, ts) }
-                lineStart += UInt64(line.count + 1)
-            }
-            return nil
-        }
-        func stampOf(_ line: Data) -> Int64 {
-            guard line.first == UInt8(ascii: "["), let close = line.firstIndex(of: UInt8(ascii: "]")) else { return 0 }
-            return clock.parseEQTimestamp(String(decoding: line[(line.startIndex + 1)..<close], as: UTF8.self))
-        }
-
-        // The last line start whose stamp is before `from`, by bisection over byte offsets.
-        var lo: UInt64 = 0, hi = size
-        while hi - lo > 8192 {
-            let mid = lo + (hi - lo) / 2
-            if let s = stamp(at: mid), s.ts < from { lo = mid } else { hi = mid }
-        }
-
         let parser = Parser(clock: clock, db: SpellDb.shared(), character: character)
         let ev = Ev(json: false)
         var out: [JSONValue] = []
         var truncated = false
+        let ok = scan(log: log, from: from, to: to, clock: clock) { line, ts in
+            guard parser.parseEvent(line, seq: 0, into: ev), ev.payload.kind != .unknown else { return true }
+            if out.count >= limit { truncated = true; return false }
+            out.append(entry(line, ts: ts, payload: ev.payload))
+            return true
+        }
+        return ok ? (out, truncated) : nil
+    }
+
+    /// Walk the log's lines stamped within [from, to], in order, handing each (without its line
+    /// ending) and its stamp to `body`; `body` returns false to stop. Lines with no stamp are
+    /// skipped. False when the file cannot be opened.
+    ///
+    /// The start is found by bisection over byte offsets on the stamps there, so the cost is a few
+    /// dozen small reads to get there plus the window itself, however long the log.
+    @discardableResult
+    static func scan(log: URL, from: Int64, to: Int64, clock: Clock,
+                     _ body: (String, Int64) -> Bool) -> Bool {
+        guard let fh = try? FileHandle(forReadingFrom: log) else { return false }
+        defer { try? fh.close() }
+        guard let size = try? fh.seekToEnd(), size > 0 else { return true }
+
+        func stampOf(_ line: Data) -> Int64 {
+            guard line.first == UInt8(ascii: "["), let close = line.firstIndex(of: UInt8(ascii: "]")) else { return 0 }
+            return clock.parseEQTimestamp(String(decoding: line[(line.startIndex + 1)..<close], as: UTF8.self))
+        }
+        /// The stamp of the first timestamped line at or after `offset`.
+        func stamp(at offset: UInt64) -> Int64? {
+            try? fh.seek(toOffset: offset)
+            guard var chunk = try? fh.read(upToCount: 8192), !chunk.isEmpty else { return nil }
+            if offset > 0 {
+                guard let nl = chunk.firstIndex(of: 0x0A) else { return nil }
+                chunk = chunk[(nl + 1)...]
+            }
+            for line in chunk.split(separator: 0x0A, omittingEmptySubsequences: false) {
+                let ts = stampOf(Data(line))
+                if ts > 0 { return ts }
+            }
+            return nil
+        }
+
+        // Narrow to a stretch that starts before `from`.
+        var lo: UInt64 = 0, hi = size
+        while hi - lo > 8192 {
+            let mid = lo + (hi - lo) / 2
+            if let ts = stamp(at: mid), ts < from { lo = mid } else { hi = mid }
+        }
+
         try? fh.seek(toOffset: lo)
         var carry = Data()
         var first = lo > 0
-        reading: while let chunk = try? fh.read(upToCount: 1 << 16), !chunk.isEmpty {
+        while let chunk = try? fh.read(upToCount: 1 << 16), !chunk.isEmpty {
             carry.append(chunk)
             while let nl = carry.firstIndex(of: 0x0A) {
                 let raw = carry[carry.startIndex..<nl]
@@ -66,14 +80,11 @@ enum LogWindow {
                 if bytes.last == 0x0D { bytes.removeLast() }
                 let ts = stampOf(bytes)
                 if ts == 0 || ts < from { continue }
-                if ts > to { break reading }
-                let line = String(decoding: bytes, as: UTF8.self)
-                guard parser.parseEvent(line, seq: 0, into: ev), ev.payload.kind != .unknown else { continue }
-                if out.count >= limit { truncated = true; break reading }
-                out.append(entry(line, ts: ts, payload: ev.payload))
+                if ts > to { return true }
+                if !body(String(decoding: bytes, as: UTF8.self), ts) { return true }
             }
         }
-        return (out, truncated)
+        return true
     }
 
     /// One line in the shape the combat log card reads (`ts`, `cat`, `role`, `text`).

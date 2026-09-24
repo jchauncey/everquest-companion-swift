@@ -39,6 +39,8 @@ struct CombatView: View {
     @State private var picked: ScopeOption?
     /// A finished fight's own lines, read back from the log file (the engine's `log.window`).
     @State private var fightLog = FightLogLines()
+    /// A finished fight's timeline rebuilt from the log, when the engine no longer keeps its ring.
+    @State private var replay = FightReplay()
     /// The live poll's window onto the fight list: the head row and the recent fights. The picker
     /// reads the whole history itself, on open (`loadFightHistory`).
     private let maxSegments = 100
@@ -63,7 +65,14 @@ struct CombatView: View {
     /// The timeline is drawn from an encounter's event ring, and a ring only exists for the live
     /// and most recent fights. Offering Timeline for the rest lands on an empty pane, which reads
     /// as a broken view rather than as "this selection has no such data".
-    private var noTimeline: Bool { !hydrating && timeline.isNull }
+    private var noTimeline: Bool { !hydrating && fullTimeline.isNull }
+    /// The fight's full timeline: the engine's own ring, or — for a fight the engine no longer keeps
+    /// one for — the one rebuilt from its stretch of the log (`combat.replay`). Null when neither.
+    private var fullTimeline: JSONValue {
+        if !timeline.isNull { return timeline }
+        if let f = finishedFight, replay.key == FightReplay.key(f), let tl = replay.timeline { return tl }
+        return .null
+    }
     /// Why the event-derived panels have nothing to show. Both are quiet notes, never errors.
     private var ringless: String {
         segment["kind"].string == "zone"
@@ -75,7 +84,7 @@ struct CombatView: View {
     /// What the curve and mob cards draw from: the event ring when there is one, else the engine's
     /// digest of it (a fight whose ring was dropped), read as a timeline. Null when neither exists.
     private var detail: JSONValue {
-        if !timeline.isNull { return timeline }
+        if !fullTimeline.isNull { return fullTimeline }
         return digestTimeline(snapshot["digest"], durationSec: segment["durationSec"].double ?? 0) ?? .null
     }
 
@@ -126,8 +135,13 @@ struct CombatView: View {
             .task(id: "\(finishedFight.map { "\($0.startTs)|\($0.durationSec)" } ?? "")|\(model.epoch ?? 0)") {
                 // A finished fight's own lines, once per fight: the engine records its log ring only
                 // while following the game live, so an earlier fight's lines come from the file.
-                guard let f = finishedFight, f.startTs > 0 else { fightLog.clear(); return }
+                guard let f = finishedFight, f.startTs > 0 else { fightLog.clear(); replay.clear(); return }
                 await fightLog.load(model, startTs: f.startTs, durationSec: f.durationSec)
+            }
+            .task(id: "\(finishedFight.map(FightReplay.key) ?? "")|\(timeline.isNull)|\(model.epoch ?? 0)") {
+                // Only for a fight the engine has no ring for: rebuild its timeline from the log.
+                guard let f = finishedFight, f.startTs > 0, timeline.isNull, !hydrating else { return }
+                await replay.load(model, f)
             }
             .onChange(of: noTimeline) { _, gone in
                 if gone, subTab == .timeline { subTab = .dashboard }
@@ -139,6 +153,15 @@ struct CombatView: View {
         if showUnparsed { return unparsed.lines }
         if finishedFight != nil { return fightLog.lines }
         return snapshot["recent"].array ?? []
+    }
+
+    /// Where an older fight's detail came from, said once above the cards.
+    private var detailNote: String? {
+        guard segment["kind"].string != "zone", timeline.isNull else { return nil }
+        if !fullTimeline.isNull { return "This fight's detail was rebuilt from the log file." }
+        if replay.loading { return "Rebuilding this fight's detail from the log…" }
+        if !detail.isNull { return "Showing this fight's summary: its full detail couldn't be rebuilt from the log." }
+        return "No per-event detail is kept for this fight, so its curve and damage-by-mob can't be drawn."
     }
 
     private var logNote: String? {
@@ -281,7 +304,7 @@ struct CombatView: View {
         if hydrating {
             hydratingPanel
         } else if subTab == .timeline {
-            ScrollView { CombatTimelinePane(timeline: timeline).padding(.bottom, 2) }
+            ScrollView { CombatTimelinePane(timeline: fullTimeline).padding(.bottom, 2) }
                 .frame(maxHeight: .infinity)
         } else if segment.isNull {
             // A Fight scope with nothing in it stays empty on purpose — it does NOT borrow the
@@ -308,9 +331,7 @@ struct CombatView: View {
                                     meterScope: meterScope, roster: snapshot["roster"],
                                     ringless: ringless, drill: $drill)
         return VStack(alignment: .leading, spacing: 6) {
-            if !hasDetail, segment["kind"].string != "zone" {
-                CombatNote("No per-event detail is kept for this fight, so its curve and damage-by-mob can't be drawn.")
-            }
+            if let note = detailNote { CombatNote(note) }
             Grid(horizontalSpacing: 10, verticalSpacing: 10) {
                 GridRow {
                     meter
@@ -438,5 +459,35 @@ final class FightLogLines {
               key == k else { return }
         lines = r["lines"].array ?? []
         truncated = r["truncated"].bool ?? false
+    }
+}
+
+/// A finished fight's full timeline rebuilt from the log (`combat.replay`): the engine keeps the
+/// event ring only for its last 60 fights, and this folds the older fight's stretch of the log again
+/// (with a few minutes' lead-in for context) to get it back. One request per fight, remembered.
+@MainActor
+@Observable
+final class FightReplay {
+    var timeline: JSONValue?
+    var loading = false
+    private(set) var key = ""
+
+    static func key(_ f: ScopeOption) -> String { "\(f.startTs)|\(f.durationSec)" }
+
+    func clear() { key = ""; timeline = nil; loading = false }
+
+    func load(_ model: AppModel, _ f: ScopeOption) async {
+        let k = Self.key(f)
+        guard k != key else { return }
+        key = k
+        timeline = nil
+        loading = true
+        defer { loading = false }
+        let to = f.startTs + Int64(f.durationSec * 1000)
+        guard let r = try? await model.client.request(Op.combatReplay,
+                                                      ["from": .int(f.startTs), "to": .int(to)], deadline: 30),
+              key == k else { return }
+        let tl = r["timeline"]
+        timeline = tl.isNull ? nil : tl
     }
 }
