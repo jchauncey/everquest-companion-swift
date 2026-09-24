@@ -67,7 +67,9 @@ public extension EqModule {
 public let wiringOrder: [String] = [
     "combo", "roster", "loot", "turnins", "classUnlocks", "kills", "respawn", "progression", "leveling",
     "character", "outputFiles", "spellSets", "itemTiers", "observedSpellRanks", "alerts", "buffs",
-    "buffTimers", "consider", "resist", "eventFeed"
+    "buffTimers", "consider", "resist", "eventFeed",
+    // Not upstream's: the one Swift-only module (SalesModule), after every ported one.
+    "sales"
 ]
 
 /// The registered modules, in delivery order, and the dispatch loop over them.

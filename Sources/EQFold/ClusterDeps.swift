@@ -40,5 +40,7 @@ public func registered(_ deps: ClusterDeps) -> Registry {
     r.register(ConsiderModule())
     r.register(ResistModule())
     r.register(EventFeedModule())
+    // Swift-only, and last: nothing upstream reads it, so it changes no ported module's delivery.
+    r.register(SalesModule())
     return r
 }
