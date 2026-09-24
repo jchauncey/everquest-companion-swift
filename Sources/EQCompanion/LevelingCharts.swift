@@ -343,6 +343,9 @@ struct LvAaAreaChart: View {
             }
             .chartXScale(domain: date(t0)...date(t1))
             .chartYScale(domain: base...(top + pad))
+            // A point from before the window (a scope that opens mid-run carries its prior value in)
+            // is drawn past the plot's edge unless the plot clips it.
+            .chartPlotStyle { $0.clipped() }
             .chartXAxis(.hidden)
             .chartYAxis(.hidden)
             .frame(height: 130)
@@ -407,6 +410,7 @@ struct LvLevelStepChart: View {
             }
             .chartXScale(domain: date(t0)...date(t1))
             .chartYScale(domain: lo...hi)
+            .chartPlotStyle { $0.clipped() }
             .chartXAxis(.hidden)
             .chartYAxis(.hidden)
             .frame(height: 150)
