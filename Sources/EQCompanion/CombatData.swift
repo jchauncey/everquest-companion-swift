@@ -196,6 +196,8 @@ struct ScopeOption: Identifiable, Hashable {
     var durationSec: Double
     var live: Bool
     var zone: String?
+    /// How many mobs the pull this row belongs to had; a row of a multi-mob pull is one of its mobs.
+    var pull: Int = 1
     var id: String { value }
 }
 
@@ -222,15 +224,25 @@ func fightScopeOptions(_ segments: [JSONValue]) -> ScopeOptions {
         zone: headSeg["zone"].string
     )
     let tail = open != nil ? finalized : Array(finalized.dropFirst())
-    let rest = tail.map { s in
-        ScopeOption(value: s["id"].string ?? "",
-                    label: s["name"].string ?? "",
-                    name: s["name"].string ?? "",
-                    dps: s["dps"].double ?? 0,
-                    startTs: s["startTs"].int64 ?? 0,
-                    durationSec: s["durationSec"].double ?? 0,
-                    live: false,
-                    zone: s["zone"].string)
+    // One row per MOB: a pull that engaged several (its segment carries `targets`, when the
+    // history was read with them) is listed as each of its mobs, `fightId#mob`, largest first.
+    let rest = tail.flatMap { s -> [ScopeOption] in
+        let id = s["id"].string ?? ""
+        let dur = s["durationSec"].double ?? 0
+        let one = ScopeOption(value: id, label: s["name"].string ?? "", name: s["name"].string ?? "",
+                              dps: s["dps"].double ?? 0, startTs: s["startTs"].int64 ?? 0,
+                              durationSec: dur, live: false, zone: s["zone"].string)
+        guard let mobs = s["targets"].array, mobs.count > 1 else { return [one] }
+        return mobs.compactMap { m in
+            guard let name = m["name"].string else { return nil }
+            var row = one
+            row.value = mobSelection(id, name)
+            row.label = name
+            row.name = name
+            row.dps = (m["total"].double ?? 0) / max(1, dur)
+            row.pull = mobs.count
+            return row
+        }
     }
     return ScopeOptions(head: head, rest: rest)
 }
@@ -1268,4 +1280,150 @@ func procsShowPoison(_ procs: JSONValue) -> Bool {
 /// Does the Procs card have anything to show: a real proc, or a coat's poison damage.
 func procsHaveContent(_ procs: JSONValue) -> Bool {
     !procListRows(procs).isEmpty || (procsShowPoison(procs) && !(procs["poisonDamage"].array ?? []).isEmpty)
+}
+
+// MARK: - One mob of a pull
+
+/// A selection naming one mob of a pull: `fightId#mob`.
+func mobSelection(_ fightId: String, _ mob: String) -> String { "\(fightId)#\(mob)" }
+
+/// `fightId#mob` → (fightId, mob); a plain fight id → (id, nil).
+func splitMobSelection(_ v: String) -> (fight: String, mob: String?) {
+    guard let i = v.firstIndex(of: "#") else { return (v, nil) }
+    return (String(v[..<i]), String(v[v.index(after: i)...]))
+}
+
+/// The mobs a pull's outgoing damage landed on, largest first — from its events, or from a digest's
+/// rows when that is all there is.
+func pullMobs(_ detail: JSONValue) -> [(name: String, total: Double)] {
+    var order: [String] = []
+    var byKey: [String: (name: String, total: Double)] = [:]
+    func add(_ name: String, _ amount: Double) {
+        let k = name.lowercased()
+        if byKey[k] == nil { order.append(k); byKey[k] = (name, 0) }
+        byKey[k]!.total += amount
+    }
+    if let rows = detail["digestRows"].array {
+        for r in rows { add(r["target"].string ?? unknownTarget, r["total"].double ?? 0) }
+    } else {
+        for e in detail["events"].array ?? [] where e["kind"].string != "enemy" {
+            guard let t = e["target"].string else { continue }
+            add(t, e["outcome"].isNull ? (e["amount"].double ?? 0) : 0)
+        }
+    }
+    return order.compactMap { byKey[$0] }.sorted { $0.total > $1.total }
+}
+
+/// A pull's detail cut down to one mob: outgoing events on it (incoming ones name no attacker, so
+/// they cannot be split and are left out), or a digest's rows for it.
+func mobTimeline(_ tl: JSONValue, mob: String) -> JSONValue {
+    guard var o = tl.object else { return tl }
+    let want = mob.lowercased()
+    if let rows = tl["digestRows"].array {
+        o["digestRows"] = .array(rows.filter { ($0["target"].string ?? "").lowercased() == want })
+        o["events"] = .array([])   // a digest's curve is the whole pull's; it cannot be split
+        return .object(o)
+    }
+    o["events"] = .array((tl["events"].array ?? []).filter {
+        $0["kind"].string != "enemy" && ($0["target"].string ?? "").lowercased() == want
+    })
+    return .object(o)
+}
+
+/// The selected fight's segment for ONE mob: the meter's entities rebuilt from the events on it
+/// (You, your pet, and everyone else as Group, each with its lanes), its damage and DPS over the
+/// span you fought it, and the damage it dealt you from the fight's own incoming list.
+func mobSegment(_ seg: JSONValue, timeline: JSONValue, mob: String) -> JSONValue {
+    guard var o = seg.object else { return seg }
+    let want = mob.lowercased()
+    struct Lane { var name: String; var total = 0.0, hits = 0, crits = 0, misses = 0, resists = 0; var max = 0.0, min = 0.0 }
+    struct Who { var id: String; var name: String; var kind: String; var lanes: [String: Lane] = [:]; var order: [String] = [] }
+    let petName = (seg["entities"].array ?? []).first { $0["kind"].string == "pet" }?["name"].string ?? "Pet"
+    var whos: [String: Who] = [:]
+    var whoOrder: [String] = []
+    var first = Double.infinity, last = -Double.infinity
+    func add(_ kind: String, lane: String, amount: Double, crit: Bool, outcome: String?, t: Double?) {
+        let side = kind == "you" ? "you" : kind == "pet" ? "pet" : "group"
+        if whos[side] == nil {
+            whoOrder.append(side)
+            whos[side] = Who(id: "mob-\(side)", name: side == "you" ? "You" : side == "pet" ? petName : "Group",
+                             kind: side == "group" ? "member" : side)
+        }
+        var w = whos[side]!
+        if w.lanes[lane] == nil { w.order.append(lane); w.lanes[lane] = Lane(name: lane) }
+        var l = w.lanes[lane]!
+        switch outcome {
+        case "miss": l.misses += 1
+        case "resist": l.resists += 1
+        default:
+            l.total += amount; l.hits += 1
+            if crit { l.crits += 1 }
+            l.max = Swift.max(l.max, amount)
+            if l.min == 0 || amount < l.min { l.min = amount }
+        }
+        w.lanes[lane] = l
+        whos[side] = w
+        if let t { first = Swift.min(first, t); last = Swift.max(last, t) }
+    }
+    if let rows = timeline["digestRows"].array {
+        for r in rows where (r["target"].string ?? "").lowercased() == want {
+            // A digest does not say whose a row was: it is credited to You.
+            var l = Lane(name: r["lane"].string ?? "")
+            l.total = r["total"].double ?? 0; l.hits = r["hits"].int ?? 0; l.crits = r["crits"].int ?? 0
+            l.misses = r["misses"].int ?? 0; l.resists = r["resists"].int ?? 0
+            l.max = r["maxHit"].double ?? 0; l.min = r["minHit"].double ?? 0
+            if whos["you"] == nil { whoOrder.append("you"); whos["you"] = Who(id: "mob-you", name: "You", kind: "you") }
+            whos["you"]!.order.append(l.name + "|" + (r["category"].string ?? ""))
+            whos["you"]!.lanes[l.name + "|" + (r["category"].string ?? "")] = l
+        }
+    } else {
+        for e in timeline["events"].array ?? [] where e["kind"].string != "enemy" {
+            guard (e["target"].string ?? "").lowercased() == want else { continue }
+            add(e["kind"].string ?? "other", lane: e["lane"].string ?? "", amount: e["amount"].double ?? 0,
+                crit: e["crit"].bool == true, outcome: e["outcome"].string, t: e["t"].double)
+        }
+    }
+    let spanSec = first.isFinite ? Swift.max(1, (last - first) / 1000 + 1) : Swift.max(1, seg["durationSec"].double ?? 1)
+    let totals = whoOrder.map { k in whos[k]!.lanes.values.reduce(0) { $0 + $1.total } }
+    let out = totals.reduce(0, +)
+    let top = Swift.max(1, totals.max() ?? 1)
+    o["entities"] = .array(zip(whoOrder, totals).map { k, total in
+        let w = whos[k]!
+        let lanes = w.order.compactMap { w.lanes[$0] }
+        let hits = lanes.reduce(0) { $0 + $1.hits }, crits = lanes.reduce(0) { $0 + $1.crits }
+        let misses = lanes.reduce(0) { $0 + $1.misses }, resists = lanes.reduce(0) { $0 + $1.resists }
+        let skills: [JSONValue] = lanes.sorted { $0.total > $1.total }.map { l in
+            var s: [String: JSONValue] = ["name": .string(l.name), "total": .double(l.total),
+                                          "pct": .double(total > 0 ? l.total / total * 100 : 0),
+                                          "hits": .int(Int64(l.hits)), "crits": .int(Int64(l.crits)),
+                                          "max": .double(l.max), "misses": .int(Int64(l.misses))]
+            if l.hits > 0 { s["min"] = .double(l.min) }
+            if l.resists > 0 { s["resists"] = .int(Int64(l.resists)) }
+            return .object(s)
+        }
+        let swings = Double(hits + misses)
+        return .object([
+            "id": .string(w.id), "name": .string(w.name), "kind": .string(w.kind),
+            "total": .double(total), "dps": .double(total / spanSec), "pct": .double(total / top * 100),
+            "hits": .int(Int64(hits)), "crits": .int(Int64(crits)),
+            "critPct": .double(hits > 0 ? Double(crits) / Double(hits) * 100 : 0),
+            "ambiguousHits": 0, "ambiguousTotal": 0, "misses": .int(Int64(misses)),
+            "hitPct": .double(swings > 0 ? Double(hits) / swings * 100 : 0),
+            "missBreakdown": [:], "resists": .int(Int64(resists)),
+            "resistPct": 0, "skills": .array(skills), "categories": .array([]),
+        ])
+    })
+    // What this mob dealt you: its row of the fight's incoming list (the pull's attackers by name).
+    let incoming = (seg["incoming"].array ?? []).filter { ($0["name"].string ?? "").lowercased() == want }
+    let inTotal = incoming.reduce(0.0) { $0 + ($1["total"].double ?? 0) }
+    o["name"] = .string(mob)
+    o["outTotal"] = .double(out)
+    o["outDps"] = .double(out / spanSec)
+    o["activeDps"] = .double(out / spanSec)
+    o["durationSec"] = .double(spanSec)
+    o["activeSec"] = .double(spanSec)
+    o["incoming"] = .array(incoming)
+    o["inTotal"] = .double(inTotal)
+    o["inDps"] = .double(inTotal / spanSec)
+    return .object(o)
 }

@@ -41,6 +41,8 @@ struct CombatView: View {
     @State private var fightLog = FightLogLines()
     /// A finished fight's timeline rebuilt from the log, when the engine no longer keeps its ring.
     @State private var replay = FightReplay()
+    /// The mob chosen on the strip for a pull that was not picked mob-by-mob (the live or last fight).
+    @State private var mobChoice: String?
     /// The live poll's window onto the fight list: the head row and the recent fights. The picker
     /// reads the whole history itself, on open (`loadFightHistory`).
     private let maxSegments = 100
@@ -54,7 +56,26 @@ struct CombatView: View {
     private var selection: String { scope == .fight ? fightSelection : zoneSelection }
 
     private var snapshot: JSONValue { poller.snapshot }
-    private var segment: JSONValue { snapshot["selected"] }
+    /// The selected fight as the engine reports it — the whole pull.
+    private var fightSegment: JSONValue { snapshot["selected"] }
+    /// What the screen shows: the pull, or ONE of its mobs when it engaged several (`mob`).
+    private var segment: JSONValue {
+        guard let m = mob else { return fightSegment }
+        return mobSegment(fightSegment, timeline: fullDetail, mob: m)
+    }
+    /// The pull's mobs, largest first, when it engaged more than one.
+    private var mobs: [(name: String, total: Double)] {
+        let m = pullMobs(fullDetail)
+        return m.count > 1 ? m : []
+    }
+    /// The one mob on screen for a multi-mob pull: the one picked from the list (`fightId#mob`), the
+    /// chip chosen, else the biggest. nil for a single-mob fight.
+    private var mob: String? {
+        guard !mobs.isEmpty else { return nil }
+        let want = splitMobSelection(selection).mob ?? mobChoice
+        if let w = want, let hit = mobs.first(where: { $0.name.lowercased() == w.lowercased() }) { return hit.name }
+        return mobs.first?.name
+    }
     private var timeline: JSONValue { snapshot["timeline"] }
     /// During the startup replay the engine is folding the whole log, so every snapshot's
     /// "current fight" is an encounter from hours ago. A churning fake-live meter is a lie.
@@ -83,10 +104,12 @@ struct CombatView: View {
 
     /// What the curve and mob cards draw from: the event ring when there is one, else the engine's
     /// digest of it (a fight whose ring was dropped), read as a timeline. Null when neither exists.
-    private var detail: JSONValue {
+    private var fullDetail: JSONValue {
         if !fullTimeline.isNull { return fullTimeline }
-        return digestTimeline(snapshot["digest"], durationSec: segment["durationSec"].double ?? 0) ?? .null
+        return digestTimeline(snapshot["digest"], durationSec: fightSegment["durationSec"].double ?? 0) ?? .null
     }
+    /// The detail the cards draw: the pull's, or cut down to the mob on screen.
+    private var detail: JSONValue { mob.map { mobTimeline(fullDetail, mob: $0) } ?? fullDetail }
 
     /// The finished fight on screen, with its start and length — the head row between pulls, or the
     /// row picked from the list. nil for the open fight and for zone sessions: those read the
@@ -113,7 +136,7 @@ struct CombatView: View {
             .task(id: "\(selection)|\(maxSegments)|\(model.epoch ?? 0)") {
                 // The sentinel is sent as *no* selectedId, so the engine re-resolves it every
                 // tick (open fight → that fight; none open → the most recent finalized one).
-                poller.selectedId = selection == combatLiveSelection ? nil : selection
+                poller.selectedId = selection == combatLiveSelection ? nil : splitMobSelection(selection).fight
                 poller.maxSegments = maxSegments
                 // ALWAYS on for this tab: the DPS curve and the damage-by-mob grouping both come
                 // from the ring, so the payload is needed for every ring-backed selection and not
@@ -130,7 +153,7 @@ struct CombatView: View {
                 // it cannot be answered client-side. The shared poller carries no such option, so
                 // the toggle runs its own thin poll and only while it is on.
                 guard showUnparsed else { unparsed.lines = []; return }
-                await unparsed.run(model, selectedId: selection == combatLiveSelection ? nil : selection)
+                await unparsed.run(model, selectedId: selection == combatLiveSelection ? nil : splitMobSelection(selection).fight)
             }
             .task(id: "\(finishedFight.map { "\($0.startTs)|\($0.durationSec)" } ?? "")|\(model.epoch ?? 0)") {
                 // A finished fight's own lines, once per fight: the engine records its log ring only
@@ -299,13 +322,45 @@ struct CombatView: View {
 
     // MARK: - Body
 
+    /// One chip per mob of a multi-mob pull: the screen shows one mob at a time, never the pull.
+    @ViewBuilder
+    private var mobStrip: some View {
+        if !mobs.isEmpty {
+            HStack(spacing: 6) {
+                Text("Mobs in this pull").font(.caption).foregroundStyle(Theme.textDim)
+                ForEach(mobs, id: \.name) { m in
+                    let on = m.name == mob
+                    Button { chooseMob(m.name) } label: {
+                        Text("\(m.name) · \(CFmt.num(m.total))")
+                            .font(.caption.weight(on ? .semibold : .regular))
+                            .foregroundStyle(on ? Theme.background : Theme.text)
+                            .padding(.horizontal, 8).padding(.vertical, 3)
+                            .background(Capsule().fill(on ? Theme.gold : Theme.paperRaised))
+                    }
+                    .buttonStyle(.plain)
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    /// A mob picked from the list is part of the selection (`fightId#mob`); on the live or last fight
+    /// it is a choice held beside it.
+    private func chooseMob(_ name: String) {
+        let (fight, picked) = splitMobSelection(selection)
+        if picked != nil { setSelection(mobSelection(fight, name)) } else { mobChoice = name }
+    }
+
     @ViewBuilder
     private var pane: some View {
         if hydrating {
             hydratingPanel
         } else if subTab == .timeline {
-            ScrollView { CombatTimelinePane(timeline: fullTimeline).padding(.bottom, 2) }
-                .frame(maxHeight: .infinity)
+            VStack(alignment: .leading, spacing: 8) {
+                mobStrip
+                ScrollView { CombatTimelinePane(timeline: mob.map { mobTimeline(fullTimeline, mob: $0) } ?? fullTimeline).padding(.bottom, 2) }
+                    .frame(maxHeight: .infinity)
+            }
         } else if segment.isNull {
             // A Fight scope with nothing in it stays empty on purpose — it does NOT borrow the
             // zone aggregate to look busy; Overall is one click away and says so.
@@ -316,7 +371,10 @@ struct CombatView: View {
             }
             .frame(maxHeight: .infinity)
         } else {
-            dashboard
+            VStack(alignment: .leading, spacing: 8) {
+                mobStrip
+                dashboard
+            }
         }
     }
 
@@ -402,7 +460,7 @@ struct CombatView: View {
     /// opens, apart from the once-a-second poll (about 2,800 fights and a few ms on a month-old log).
     private func loadFightHistory() async -> ScopeOptions? {
         guard let r = try? await model.client.request(Op.combatSnapshot,
-                                                      ["opts": ["maxSegments": .int(1_000_000)]], deadline: 15)
+                                                      ["opts": ["maxSegments": .int(1_000_000), "targets": true]], deadline: 15)
         else { return nil }
         return fightScopeOptions(r["snapshot"]["segments"].array ?? [])
     }

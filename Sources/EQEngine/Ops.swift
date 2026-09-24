@@ -470,7 +470,8 @@ public enum Ops {
                           showUnparsed: opts["showUnparsed"].bool ?? false,
                           maxSegments: Int(Swift.max(opts["maxSegments"].int64 ?? defaultMaxSegments, 0)),
                           timeline: opts["timeline"].bool ?? false,
-                          digest: opts["digest"].bool ?? false)
+                          digest: opts["digest"].bool ?? false,
+                          targets: opts["targets"].bool ?? false)
     }
 
     /// What a JSON value IS, for a diagnostic that has to say why an answer was refused.
@@ -698,7 +699,7 @@ extension Ops {
             let opts = Shape.object(required: [:],
                                     optional: ["selectedId": .string, "showUnparsed": .boolean,
                                                "maxSegments": .integer, "timeline": .boolean,
-                                               "digest": .boolean],
+                                               "digest": .boolean, "targets": .boolean],
                                     open: true)
             return .object(required: [:], optional: ["opts": opts], open: false)
         case "combat.searchFights":

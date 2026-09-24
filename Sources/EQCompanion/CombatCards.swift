@@ -910,6 +910,9 @@ struct FightPicker: View {
                         if let z = o.zone, !z.isEmpty {
                             Text(z).font(.system(size: 9)).foregroundStyle(Theme.textFaint).lineLimit(1)
                         }
+                        if o.pull > 1 {
+                            Text("1 of \(o.pull) in pull").font(.system(size: 9)).foregroundStyle(Theme.textDim)
+                        }
                     }
                     Text(rowTiming(o, at))
                         .font(.system(size: 10)).foregroundStyle(Theme.textFaint)

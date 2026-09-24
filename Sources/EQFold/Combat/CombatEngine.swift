@@ -33,11 +33,15 @@ public struct SnapshotOpts: Sendable {
     /// Swift-only: include the selected fight's `FightDigest` when its event ring is gone. Absent
     /// unless asked, so no ported answer changes shape.
     public var digest: Bool = false
+    /// Swift-only: give each multi-mob fight's segment row its mobs (`targets`, largest first) so a
+    /// client can list a pull mob by mob. Absent unless asked.
+    public var targets: Bool = false
 
     public init(selectedId: String? = nil, showUnparsed: Bool = false, maxSegments: Int = 0, timeline: Bool = false,
-                digest: Bool = false) {
+                digest: Bool = false, targets: Bool = false) {
         self.selectedId = selectedId; self.showUnparsed = showUnparsed
         self.maxSegments = maxSegments; self.timeline = timeline; self.digest = digest
+        self.targets = targets
     }
 
     /// The recorder's full-fat options.
@@ -186,7 +190,7 @@ public final class CombatEngine {
         var out: [String: JSONValue] = [
             "selectedId": .string(selectedId),
             "selected": selected,
-            "segments": .array(segments.map(\.json)),
+            "segments": .array(opts.targets ? segmentsWithTargets(segments) : segments.map(\.json)),
             "inCombat": .bool(inCombat),
             "recent": .array(Array(recent)),
             "stance": stanceState(st).json,

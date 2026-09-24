@@ -451,5 +451,6 @@ func snapshotOpts(_ opts: CombatOpts) -> SnapshotOpts {
                  showUnparsed: opts.showUnparsed,
                  maxSegments: opts.maxSegments,
                  timeline: opts.timeline,
-                 digest: opts.digest)
+                 digest: opts.digest,
+                 targets: opts.targets)
 }

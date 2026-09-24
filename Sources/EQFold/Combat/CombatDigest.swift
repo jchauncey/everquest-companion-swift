@@ -116,3 +116,24 @@ public struct FightDigest: Sendable, Equatable {
         return FightDigest(bucketMs: bucketMs, curve: curve, rows: rows, truncated: truncated)
     }
 }
+
+// MARK: - A pull's mobs
+
+extension CombatEngine {
+    /// The segment rows with each multi-mob fight's mobs attached: `targets` = [{name, total}],
+    /// largest first, from the fight's own per-target totals. A single-mob fight and the zone row
+    /// are unchanged. Swift-only and answered only on request (`SnapshotOpts.targets`).
+    func segmentsWithTargets(_ segments: [SegmentSummary]) -> [JSONValue] {
+        var byId: [String: Encounter] = [:]
+        for e in st.history { byId[e.id] = e }
+        if let c = st.current { byId[c.id] = c }
+        return segments.map { s in
+            var json = s.json
+            guard let e = byId[s.id], e.agg.targets.count > 1, var o = json.object else { return json }
+            let rows = e.agg.targets.values.sorted { $0.amount != $1.amount ? $0.amount > $1.amount : $0.name < $1.name }
+            o["targets"] = .array(rows.map { ["name": .string($0.name), "total": .int($0.amount)] })
+            json = .object(o)
+            return json
+        }
+    }
+}

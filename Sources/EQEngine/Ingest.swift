@@ -184,11 +184,14 @@ public struct CombatOpts: Equatable {
     public var timeline: Bool
     /// Include the selected fight's compact digest when its ring is gone (Swift-only).
     public var digest: Bool
+    /// Give each multi-mob fight's segment row its mobs (Swift-only).
+    public var targets: Bool
 
     public init(selectedId: String? = nil, showUnparsed: Bool = false,
-                maxSegments: Int = 0, timeline: Bool = false, digest: Bool = false) {
+                maxSegments: Int = 0, timeline: Bool = false, digest: Bool = false, targets: Bool = false) {
         self.selectedId = selectedId; self.showUnparsed = showUnparsed
         self.maxSegments = maxSegments; self.timeline = timeline; self.digest = digest
+        self.targets = targets
     }
 }
 
