@@ -293,19 +293,20 @@ struct LvZoneLegendStrip: View {
         if rows.isEmpty {
             EmptyView()
         } else {
-            HStack(spacing: 10) {
+            // Whole entries wrap to the next line; a name is never squeezed letter by letter.
+            FlowLayout(spacing: 10) {
                 ForEach(rows) { r in
                     HStack(spacing: 4) {
                         RoundedRectangle(cornerRadius: 1).fill(r.color).frame(width: 8, height: 8)
                         Text(r.name).foregroundStyle(Theme.textDim)
                         Text(LevelingFormat.delta(r.ms)).foregroundStyle(Theme.textFaint)
                     }
+                    .fixedSize()
                 }
-                if more > 0 { Text("+\(more) more").foregroundStyle(Theme.textFaint) }
+                if more > 0 { Text("+\(more) more").foregroundStyle(Theme.textFaint).fixedSize() }
             }
             .font(.caption2)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

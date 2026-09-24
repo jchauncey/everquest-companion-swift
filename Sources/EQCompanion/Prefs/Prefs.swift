@@ -57,11 +57,6 @@ final class Prefs {
     /// checkpoint, and an app that pushed "nothing" for it would wipe what the checkpoint holds.
     var respawnWatchesJSON: String? { didSet { d.set(respawnWatchesJSON, forKey: "prefs.timers.respawnWatches") } }
 
-    // MARK: Layout
-    /// The Leveling tab's panel arrangement, as `PanelLayout.encode` writes it (`a,b|c,d`: columns
-    /// split by `|`). Empty = the default arrangement.
-    var levelingLayout: String { didSet { d.set(levelingLayout, forKey: "prefs.layout.leveling") } }
-
     // MARK: Cursor ring
     var cursorRingEnabled: Bool { didSet { d.set(cursorRingEnabled, forKey: "prefs.cursorRing.enabled") } }
     var cursorRingSize: Int { didSet { d.set(cursorRingSize, forKey: "prefs.cursorRing.size") } }
@@ -115,7 +110,6 @@ final class Prefs {
         keepRunningInMenuBar = bool("prefs.window.keepRunningInMenuBar", false)
         trustedCasters = d.stringArray(forKey: "prefs.buffs.trustedCasters") ?? []
         respawnWatchesJSON = d.string(forKey: "prefs.timers.respawnWatches")
-        levelingLayout = d.string(forKey: "prefs.layout.leveling") ?? ""
         cursorRingEnabled = bool("prefs.cursorRing.enabled", false)
         cursorRingSize = int("prefs.cursorRing.size", 44)
         cursorRingThickness = int("prefs.cursorRing.thickness", 4)

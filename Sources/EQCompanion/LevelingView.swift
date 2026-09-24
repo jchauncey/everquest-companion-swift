@@ -167,7 +167,15 @@ struct LevelingView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     heroes
-                    PanelBoard(board: "leveling", layout: layoutBinding, titles: Self.panelTitles) { panel($0) }
+                    paceTiles
+                    HStack(alignment: .top, spacing: 12) {
+                        spellsPanel.frame(maxWidth: .infinity, alignment: .top)
+                        if !core.ledger.isEmpty {
+                            LvAaLedgerPanel(rows: core.ledger, allocated: core.aa.allocated)
+                                .frame(maxWidth: .infinity, alignment: .top)
+                        }
+                    }
+                    progress
                 }
                 .padding(14)
             }
@@ -268,66 +276,46 @@ struct LevelingView: View {
 
     // MARK: - The panels
 
-    /// Two columns: how you are progressing on the left, what to cast and what you bought on the
-    /// right. Every panel can be dragged to either column; the arrangement is saved on `Prefs`.
-    static let defaultLayout = PanelLayout(columns: [["pace", "progress"], ["spells", "ledger"]])
-    static let panelTitles = ["pace": "AA pace", "progress": "AA and level over time",
-                              "spells": "Best spells", "ledger": "AA abilities"]
-
-    private var layoutBinding: Binding<PanelLayout> {
-        Binding(get: { PanelLayout.normalized(.decode(Prefs.shared.levelingLayout), defaults: Self.defaultLayout) },
-                set: { Prefs.shared.levelingLayout = $0.encoded })
+    /// AA pace for the window the time-range bar below has chosen, in the same tiles as the
+    /// headline row. Each says which window it is, because the bar that sets it sits at the bottom.
+    @ViewBuilder
+    private var paceTiles: some View {
+        if let s = scoped, let pace = s.pace {
+            HStack(alignment: .top, spacing: 12) {
+                ForEach(pace.tiles(basis)) { t in paceTile(t, scope: s.scope.label) }
+            }
+            .help("\(s.scope.label) - \(pace.caption(basis)). \(basis.title)")
+        }
     }
 
-    private func panel(_ id: String) -> AnyView? {
-        switch id {
-        case "pace":
-            guard let s = scoped, let pace = s.pace else { return nil }
-            return AnyView(aaPaceCard(pace, label: s.scope.label))
-        case "progress":
-            if core.nothing || scoped == nil {
-                return AnyView(Card {
-                    Text(core.hasBounds
-                         ? "No level-ups or AA gains found in this character's log yet. They'll appear here live as you play."
-                         : "Reading the log…")
-                        .font(.callout).foregroundStyle(Theme.textDim)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                })
+    private var spellsPanel: some View {
+        LvBestSpellsPanel(best: best, ranks: core.ranks, level: level, loading: catalogueLoading,
+                          tab: $tab, query: $query, simulate: $simulate, sorts: $sorts,
+                          search: searchResults,
+                          onLevel: { viewedLevel = max(1, min(60, $0)) })
+    }
+
+    /// The time-range bar and the two charts it drives, across the whole width.
+    @ViewBuilder
+    private var progress: some View {
+        if core.nothing || scoped == nil {
+            Card {
+                Text(core.hasBounds
+                     ? "No level-ups or AA gains found in this character's log yet. They'll appear here live as you play."
+                     : "Reading the log…")
+                    .font(.callout).foregroundStyle(Theme.textDim)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            guard let s = scoped else { return nil }
-            return AnyView(VStack(alignment: .leading, spacing: 12) {
+        } else if let s = scoped {
+            VStack(alignment: .leading, spacing: 12) {
                 scopeBar(s)
                 if s.aaVisible.count >= 1, core.aaCumulative.count >= 2 { aaCard(s) }
                 if core.leveling.levels.count >= 2 { levelCard(s) }
-            })
-        case "spells":
-            return AnyView(LvBestSpellsPanel(best: best, ranks: core.ranks, level: level, loading: catalogueLoading,
-                                             tab: $tab, query: $query, simulate: $simulate, sorts: $sorts,
-                                             search: searchResults,
-                                             onLevel: { viewedLevel = max(1, min(60, $0)) }))
-        case "ledger":
-            guard !core.ledger.isEmpty else { return nil }
-            return AnyView(LvAaLedgerPanel(rows: core.ledger, allocated: core.aa.allocated))
-        default:
-            return nil
-        }
-    }
-
-    private func aaPaceCard(_ pace: LvAaPace, label: String) -> some View {
-        Card("AA PACE") {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("\(label) - \(pace.caption(basis))")
-                    .font(.caption2).foregroundStyle(Theme.textFaint)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .help(basis.title)
-                HStack(spacing: 8) {
-                    ForEach(pace.tiles(basis)) { t in paceTile(t) }
-                }
             }
         }
     }
 
-    private func paceTile(_ t: LvAaPaceTile) -> some View {
+    private func paceTile(_ t: LvAaPaceTile, scope: String) -> some View {
         let color: Color = {
             switch t.id {
             case .rate: return Theme.blue
@@ -336,21 +324,9 @@ struct LevelingView: View {
             case .potion: return Theme.gold
             }
         }()
-        return VStack(alignment: .leading, spacing: 1) {
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(t.value).font(.title3.weight(.semibold)).foregroundStyle(color).monospacedDigit()
-                if !t.unit.isEmpty { Text(t.unit).font(.caption2).foregroundStyle(Theme.textDim) }
-            }
-            Text(t.label).font(.caption).foregroundStyle(Theme.text).lineLimit(1)
-            if t.inferred { Chip(text: "inferred") }
-        }
-        .padding(9)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 6).fill(Theme.paperRaised))
-        .overlay(alignment: .leading) {
-            RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 3).padding(.vertical, 6)
-        }
-        .help(t.title)
+        return BigStat(value: t.unit.isEmpty ? t.value : "\(t.value) \(t.unit)", label: t.label,
+                       sub: t.inferred ? "\(scope) · inferred" : scope, color: color)
+            .help(t.title)
     }
 
     /// WHICH STRETCH, WHICH TIERS OF IT, AND PER HOUR OF WHAT — one row of controls, one line that

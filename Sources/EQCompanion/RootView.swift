@@ -2,13 +2,13 @@ import SwiftUI
 import EQCompanionCore
 
 enum Tab: String, CaseIterable, Identifiable {
-    case overview, combat, mobs, loot, motes, gear, maps, raidTargets, planeOfSky, alerts, leveling, buffs, timers
+    case overview, combat, mobs, loot, motes, gear, maps, raidTargets, planeOfSky, alerts, leveling, timers
     case events, knowledge, spells, engine
     var id: String { rawValue }
 
     /// The Electron nav order, then the Mac-only extras.
     /// The Electron nav order, minus Mobs — the global search box replaced that page.
-    static let primary: [Tab] = [.overview, .combat, .loot, .motes, .gear, .maps, .raidTargets, .planeOfSky, .alerts, .leveling, .buffs, .timers]
+    static let primary: [Tab] = [.overview, .combat, .loot, .motes, .gear, .maps, .raidTargets, .planeOfSky, .alerts, .leveling, .timers]
     static let secondary: [Tab] = [.events, .knowledge, .spells, .engine]
 
     var label: String {
@@ -24,7 +24,6 @@ enum Tab: String, CaseIterable, Identifiable {
         case .planeOfSky: return "Plane of Sky"
         case .alerts: return "Alerts"
         case .leveling: return "Leveling"
-        case .buffs: return "Buffs"
         case .timers: return "Timers"
         case .events: return "Events"
         case .knowledge: return "Knowledge"
@@ -46,7 +45,6 @@ enum Tab: String, CaseIterable, Identifiable {
         case .planeOfSky: return "shield.fill"
         case .alerts: return "bell.fill"
         case .leveling: return "chart.line.uptrend.xyaxis"
-        case .buffs: return "wand.and.stars"
         case .timers: return "stopwatch.fill"
         case .events: return "list.bullet.rectangle"
         case .knowledge: return "book.fill"
@@ -137,7 +135,6 @@ struct RootView: View {
         case .planeOfSky: PlaneOfSkyView()
         case .alerts: AlertsView()
         case .leveling: LevelingView()
-        case .buffs: BuffsView()
         case .timers: TimersView()
         case .events: EventsView()
         case .knowledge: KnowledgeView()

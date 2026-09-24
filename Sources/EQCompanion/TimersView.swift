@@ -197,9 +197,9 @@ struct TimersView: View {
             }
             TimelineView(.periodic(from: .now, by: 1)) { ctx in
                 let now = Int64(ctx.date.timeIntervalSince1970 * 1000)
-                let rows = allowedTimerRows
+                let rows = timers.rows
                 if rows.isEmpty {
-                    Text(timersEmptyText).font(.callout).foregroundStyle(Theme.textDim)
+                    Text("No \(surface) timers running.").font(.callout).foregroundStyle(Theme.textDim)
                 } else {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(timerGroups(rows)) { g in
@@ -212,17 +212,6 @@ struct TimersView: View {
                 }
             }
         }
-    }
-
-    @MainActor private var allowedTimerRows: [Row] {
-        let allow = BuffAllowStore.shared
-        guard allow.optIn else { return timers.rows }
-        return timers.rows.filter { allow.allowed(BuffFormat.timerNameKey($0["name"].display)) }
-    }
-
-    @MainActor private var timersEmptyText: String {
-        if timers.rows.isEmpty { return "No \(surface) timers running." }
-        return "Every \(surface) timer is unchecked. Tick a spell in Buffs → Durations to draw it here."
     }
 
     private func timerGroups(_ rows: [Row]) -> [RowGroup] {
