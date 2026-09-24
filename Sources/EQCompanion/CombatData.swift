@@ -1075,3 +1075,55 @@ func spellStat(_ s: JSONValue) -> String {
 func laneAmount(_ s: JSONValue) -> String {
     s["classification"].string == "unstated" ? procAbsent : CFmt.num(s["total"].double ?? 0)
 }
+
+// MARK: - Fight history by day
+
+/// One calendar day of finalized fights, newest first, for the picker's history.
+struct FightDay: Identifiable, Equatable {
+    /// `yyyy-MM-dd` in the local zone — the section's id and its scroll anchor.
+    var key: String
+    var label: String
+    var rows: [ScopeOption]
+    var id: String { key }
+}
+
+/// Fights grouped into local days, newest day first and newest fight first within a day. `Today`
+/// and `Yesterday` are named as such; older days read `Mon Sep 21` (with the year once it is not
+/// this one). Fights with no start time go last, under `Undated`.
+func fightDays(_ rows: [ScopeOption], now: Int64, calendar: Calendar = .current) -> [FightDay] {
+    let keyFmt = DateFormatter()
+    keyFmt.calendar = calendar
+    keyFmt.timeZone = calendar.timeZone
+    keyFmt.locale = Locale(identifier: "en_US_POSIX")
+    keyFmt.dateFormat = "yyyy-MM-dd"
+    let nowDate = Date(timeIntervalSince1970: Double(now) / 1000)
+    let today = keyFmt.string(from: nowDate)
+    let yesterday = calendar.date(byAdding: .day, value: -1, to: nowDate).map(keyFmt.string(from:)) ?? ""
+    let sameYear = DateFormatter(), otherYear = DateFormatter()
+    for f in [sameYear, otherYear] {
+        f.calendar = calendar; f.timeZone = calendar.timeZone; f.locale = Locale(identifier: "en_US_POSIX")
+    }
+    sameYear.dateFormat = "EEE MMM d"
+    otherYear.dateFormat = "EEE MMM d, yyyy"
+
+    var byKey: [String: [ScopeOption]] = [:]
+    var undated: [ScopeOption] = []
+    for r in rows {
+        guard r.startTs > 0 else { undated.append(r); continue }
+        byKey[keyFmt.string(from: Date(timeIntervalSince1970: Double(r.startTs) / 1000)), default: []].append(r)
+    }
+    var out: [FightDay] = byKey.keys.sorted(by: >).map { k in
+        let rows = byKey[k]!.sorted { $0.startTs > $1.startTs }
+        let label: String
+        if k == today { label = "Today" }
+        else if k == yesterday { label = "Yesterday" }
+        else {
+            let d = Date(timeIntervalSince1970: Double(rows[0].startTs) / 1000)
+            label = calendar.component(.year, from: d) == calendar.component(.year, from: nowDate)
+                ? sameYear.string(from: d) : otherYear.string(from: d)
+        }
+        return FightDay(key: k, label: label, rows: rows)
+    }
+    if !undated.isEmpty { out.append(FightDay(key: "undated", label: "Undated", rows: undated)) }
+    return out
+}

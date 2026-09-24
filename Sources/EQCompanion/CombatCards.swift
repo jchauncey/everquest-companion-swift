@@ -686,15 +686,19 @@ struct CombatLogCard: View {
 /// The encounter selector. Exactly ONE scope's rows are ever listed — the fight scope shows no
 /// zone sessions and vice versa — and the list is frozen at open time so a fight finalizing
 /// mid-pull cannot move the row under the pointer.
+///
+/// In the fight scope, opening it loads EVERY fight the engine holds (`loadHistory`: one request,
+/// not the live poll) and lists them by day, newest first, under a strip of day chips that jumps the
+/// list to a date - so a fight from days ago is a scroll or a click away, not only a search.
 struct FightPicker: View {
     var opts: ScopeOptions
     var scope: CombatScope
     var selection: String
     var now: Int64
-    var capped: Bool
     var onSelect: (String) -> Void
-    var onLoadMore: () -> Void
     var search: (String) async -> [ScopeOption]
+    /// Every fight, for the history. nil when it could not be read: the live list stands in.
+    var loadHistory: () async -> ScopeOptions? = { nil }
 
     @State private var open = false
     @State private var frozen: ScopeOptions?
@@ -704,6 +708,10 @@ struct FightPicker: View {
     @State private var searching = false
     /// The row the arrow keys are on; Return picks it. Follows the query, never survives it.
     @State private var highlighted = 0
+    /// The whole fight history, read when the picker opens; kept so a fight picked from it still
+    /// labels the closed trigger.
+    @State private var history: ScopeOptions?
+    @State private var loadingHistory = false
 
     /// The option the CLOSED trigger states. The live list wins whenever it holds the selection,
     /// so the head row keeps re-labelling itself live/last and its age keeps ticking.
@@ -711,6 +719,7 @@ struct FightPicker: View {
         if opts.head?.value == selection { return opts.head }
         if let listed = opts.rest.first(where: { $0.value == selection }) { return listed }
         if let hit = hits.first(where: { $0.value == selection }) { return hit }
+        if let old = history?.rest.first(where: { $0.value == selection }) { return old }
         return opts.head
     }
 
@@ -719,6 +728,7 @@ struct FightPicker: View {
             frozen = opts
             frozenNow = now
             open = true
+            if scope == .fight { Task { await readHistory() } }
         } label: {
             HStack(spacing: 6) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -743,16 +753,28 @@ struct FightPicker: View {
         o.live && scope == .overall ? "live" : CFmt.timing(startTs: o.startTs, durationSec: o.durationSec, now: at)
     }
 
-    /// What the open list shows — the browse rows, or the search hits once a query landed.
+    private var browsing: Bool { query.trimmingCharacters(in: .whitespaces).isEmpty }
+
+    /// The history by day, once read (the frozen live list until then, so the picker is never empty
+    /// while it loads). The zone-session scope has no days: its short list stands as it is.
+    private var days: [FightDay] {
+        guard scope == .fight else { return [] }
+        return fightDays((frozen ?? opts).rest, now: frozenNow == 0 ? now : frozenNow)
+    }
+
+    /// Every row the open list shows, in the order drawn — the arrow keys walk this.
     private var listRows: [ScopeOption] {
+        guard browsing else { return hits }
         let f = frozen ?? opts
-        let browse = (f.head.map { [$0] } ?? []) + f.rest
-        return query.trimmingCharacters(in: .whitespaces).isEmpty ? browse : hits
+        let head = f.head.map { [$0] } ?? []
+        return scope == .fight ? head + days.flatMap(\.rows) : head + f.rest
     }
 
     private var list: some View {
         let f = frozen ?? opts
         let rows = listRows
+        let grouped = days
+        let headCount = f.head == nil ? 0 : 1
         return VStack(alignment: .leading, spacing: 6) {
             if scope == .fight {
                 TextField("Search every fight (mob, zone)…", text: $query)
@@ -775,34 +797,95 @@ struct FightPicker: View {
                 CombatNote(emptyText)
             }
             ScrollViewReader { proxy in
+                if browsing, scope == .fight, grouped.count > 1 {
+                    dayChips(grouped) { key in withAnimation { proxy.scrollTo("day-\(key)", anchor: .top) } }
+                }
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(rows.enumerated()), id: \.offset) { i, o in
-                            row(o, head: query.isEmpty && i == 0 && f.head != nil, keyed: i == highlighted)
-                                .id(i)
-                            if query.isEmpty, i == 0, f.head != nil { Divider().overlay(Theme.border) }
-                        }
-                        if query.isEmpty, capped {
-                            Button { onLoadMore() } label: {
-                                Text("Load more fights…").font(.caption).foregroundStyle(Theme.gold)
-                                    .padding(.vertical, 5)
+                    LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                        if browsing, scope == .fight {
+                            if let h = f.head {
+                                row(h, head: true, keyed: highlighted == 0).id(0)
+                                Divider().overlay(Theme.border)
                             }
-                            .buttonStyle(.plain)
+                            if loadingHistory, history == nil {
+                                Text("Reading every fight…").font(.caption).foregroundStyle(Theme.textFaint)
+                                    .padding(.vertical, 4)
+                            }
+                            ForEach(Array(sectionOffsets(grouped, first: headCount).enumerated()), id: \.element.day.key) { _, s in
+                                Section {
+                                    ForEach(Array(s.day.rows.enumerated()), id: \.element.value) { j, o in
+                                        row(o, head: false, keyed: highlighted == s.offset + j).id(s.offset + j)
+                                    }
+                                } header: {
+                                    dayHeader(s.day).id("day-\(s.day.key)")
+                                }
+                            }
+                        } else {
+                            ForEach(Array(rows.enumerated()), id: \.offset) { i, o in
+                                row(o, head: browsing && i == 0 && f.head != nil, keyed: i == highlighted)
+                                    .id(i)
+                                if browsing, i == 0, f.head != nil { Divider().overlay(Theme.border) }
+                            }
                         }
                     }
                 }
-                .frame(height: 320)
+                .frame(height: 380)
                 .onChange(of: highlighted) { _, i in proxy.scrollTo(i) }
             }
         }
         .padding(10)
-        .frame(width: 460)
+        .frame(width: 480)
         // The zone-session list has no search field, so the keys land on the popover itself.
         .focusable(scope != .fight)
         .focusEffectDisabled()
         .onKeyPress(.downArrow) { move(1); return .handled }
         .onKeyPress(.upArrow) { move(-1); return .handled }
         .onKeyPress(.return) { pickHighlighted(); return .handled }
+    }
+
+    /// Each day with the flat index of its first row, so a row's id is its place in `listRows`.
+    private func sectionOffsets(_ days: [FightDay], first: Int) -> [(day: FightDay, offset: Int)] {
+        var out: [(FightDay, Int)] = []
+        var at = first
+        for d in days { out.append((d, at)); at += d.rows.count }
+        return out.map { (day: $0.0, offset: $0.1) }
+    }
+
+    private func dayHeader(_ d: FightDay) -> some View {
+        HStack(spacing: 6) {
+            Text(d.label).font(.caption.weight(.semibold)).foregroundStyle(Theme.text)
+            Text("\(d.rows.count) \(d.rows.count == 1 ? "fight" : "fights")").font(.caption2).foregroundStyle(Theme.textFaint)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 6).padding(.vertical, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.paper)
+    }
+
+    /// One chip per day, newest first: a click scrolls the list to that day.
+    private func dayChips(_ days: [FightDay], jump: @escaping (String) -> Void) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
+                ForEach(days) { d in
+                    Button { jump(d.key) } label: {
+                        Text(d.label).font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.textDim)
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(Capsule().fill(Theme.paperRaised))
+                    }
+                    .buttonStyle(.plain)
+                    .help("\(d.rows.count) fights")
+                }
+            }
+        }
+    }
+
+    /// The whole history, once per open. The list swaps from the live window to it when it lands.
+    private func readHistory() async {
+        loadingHistory = true
+        defer { loadingHistory = false }
+        guard let all = await loadHistory() else { return }
+        history = all
+        if open { frozen = all }
     }
 
     private func move(_ d: Int) {
@@ -835,7 +918,7 @@ struct FightPicker: View {
                     HStack(spacing: 5) {
                         Text(o.label).font(.callout).foregroundStyle(Theme.text).lineLimit(1)
                         if o.live { Text("live").font(.system(size: 9)).foregroundStyle(Theme.green) }
-                        if let z = o.zone, !query.isEmpty {
+                        if let z = o.zone, !z.isEmpty {
                             Text(z).font(.system(size: 9)).foregroundStyle(Theme.textFaint).lineLimit(1)
                         }
                     }

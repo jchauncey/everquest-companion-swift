@@ -35,7 +35,9 @@ struct CombatView: View {
     private var meterScope: MeterScope { MeterScope.preferred }
     @State private var showUnparsed = false
     @State private var drill: CombatDrill?
-    @State private var maxSegments = 100
+    /// The live poll's window onto the fight list: the head row and the recent fights. The picker
+    /// reads the whole history itself, on open (`loadFightHistory`).
+    private let maxSegments = 100
 
     enum SubTab: String, CaseIterable, Hashable {
         case dashboard, timeline
@@ -53,11 +55,6 @@ struct CombatView: View {
     private var hydrating: Bool { snapshot.isNull || snapshot["hydrating"].bool == true }
     private var opts: ScopeOptions {
         scopeOptions(scope, segments: snapshot["segments"].array ?? [], zoneSessions: snapshot["zoneSessions"].array ?? [])
-    }
-    /// The segment payload is capped at `maxSegments` finalized fights, so offer a "Load more"
-    /// when the cap is likely truncating history.
-    private var capped: Bool {
-        scope == .fight && (snapshot["segments"].array ?? []).filter { $0["kind"].string == "fight" }.count >= maxSegments
     }
     /// The timeline is drawn from an encounter's event ring, and a ring only exists for the live
     /// and most recent fights. Offering Timeline for the rest lands on an empty pane, which reads
@@ -132,10 +129,9 @@ struct CombatView: View {
                             scope: scope,
                             selection: selection,
                             now: now,
-                            capped: capped,
                             onSelect: setSelection,
-                            onLoadMore: { maxSegments += 100 },
-                            search: searchFights)
+                            search: searchFights,
+                            loadHistory: loadFightHistory)
                 .disabled(hydrating)
             }
             .padding(.horizontal, 4).padding(.vertical, 2)
@@ -322,6 +318,15 @@ struct CombatView: View {
     private func setMode(_ m: MeterMode) {
         drill = nil
         mode = m
+    }
+
+    /// Every fight the engine holds, for the picker's by-day history: one request when the picker
+    /// opens, apart from the once-a-second poll (about 2,800 fights and a few ms on a month-old log).
+    private func loadFightHistory() async -> ScopeOptions? {
+        guard let r = try? await model.client.request(Op.combatSnapshot,
+                                                      ["opts": ["maxSegments": .int(1_000_000)]], deadline: 15)
+        else { return nil }
+        return fightScopeOptions(r["snapshot"]["segments"].array ?? [])
     }
 
     private func searchFights(_ query: String) async -> [ScopeOption] {
