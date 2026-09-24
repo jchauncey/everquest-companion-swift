@@ -17,7 +17,8 @@ struct FightPayout: Equatable {
         var count: Int64
         /// Auto-sold at loot rather than kept.
         var sold: Bool
-        var id: String { item }
+        /// The same item can be kept once and auto-sold once: two rows.
+        var id: String { "\(item)|\(sold)" }
     }
 
     var kills = 0
@@ -283,6 +284,8 @@ struct CombatStatsStrip: View {
 /// What came off the corpse: each drop with its count (sold ones dim and tagged), and the coin.
 struct CombatLootCard: View {
     var payout: FightPayout?
+    /// The drop whose item card is open.
+    @State private var opened: String?
 
     var body: some View {
         CombatCard(title: "Loot", trailing: {
@@ -298,18 +301,32 @@ struct CombatLootCard: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 4) {
                             ForEach(p.loot) { d in
-                                HStack(spacing: 6) {
-                                    Text(d.item).font(.callout).lineLimit(1)
-                                        .foregroundStyle(d.sold ? Theme.textDim : Theme.text)
-                                    if d.count > 1 {
-                                        Text("×\(d.count)").font(.caption).foregroundStyle(Theme.textDim).monospacedDigit()
+                                // Each drop opens THE item card (ItemCard.swift), as everywhere else.
+                                Button { opened = d.id } label: {
+                                    HStack(spacing: 6) {
+                                        Text(d.item).font(.callout).lineLimit(1)
+                                            .foregroundStyle(d.sold ? Theme.textDim : Theme.text)
+                                        if d.count > 1 {
+                                            Text("×\(d.count)").font(.caption).foregroundStyle(Theme.textDim).monospacedDigit()
+                                        }
+                                        Spacer(minLength: 4)
+                                        if d.sold {
+                                            Text("sold").font(.system(size: 9)).foregroundStyle(Theme.textFaint)
+                                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                                .background(Capsule().fill(Theme.paperRaised))
+                                        }
                                     }
-                                    Spacer(minLength: 4)
-                                    if d.sold {
-                                        Text("sold").font(.system(size: 9)).foregroundStyle(Theme.textFaint)
-                                            .padding(.horizontal, 5).padding(.vertical, 1)
-                                            .background(Capsule().fill(Theme.paperRaised))
-                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .help("Open \(d.item)")
+                                .popover(isPresented: Binding(get: { opened == d.id },
+                                                              set: { if !$0 { opened = nil } }),
+                                         arrowEdge: .leading) {
+                                    ItemCardView(name: LootName.normalize(d.item), onClose: { opened = nil })
+                                        .padding(12)
+                                        .frame(width: 520, height: 600)
+                                        .background(Theme.background)
                                 }
                             }
                         }
