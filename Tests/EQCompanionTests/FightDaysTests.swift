@@ -40,3 +40,41 @@ final class FightDaysTests: XCTestCase {
         XCTAssertTrue(fightDays([], now: 0, calendar: cal).isEmpty)
     }
 }
+
+/// The picker's filter: case-insensitive, anywhere in the name or zone, `*` as a gap.
+final class FightFilterTests: XCTestCase {
+    private func fight(_ name: String, zone: String? = "Kedge Keep 1 (Awakened)", ts: Int64 = 1_000) -> ScopeOption {
+        ScopeOption(value: name, label: name, name: name, dps: 1, startTs: ts, durationSec: 1, live: false, zone: zone)
+    }
+
+    func testAnyCaseAnywhereInTheName() {
+        XCTAssertTrue(fightMatches(fight("a gloomwater mermaid (6) +2"), "gloom"))
+        XCTAssertTrue(fightMatches(fight("Estrella of Gloomwater (3) +2"), "GLOOM"), "not only at the start")
+        XCTAssertFalse(fightMatches(fight("A piercer swordfish (12)"), "gloom"))
+        XCTAssertTrue(fightMatches(fight("anything"), "   "), "a blank query keeps everything")
+    }
+
+    func testTheZoneMatchesToo() {
+        XCTAssertTrue(fightMatches(fight("a rat", zone: "The Plane of Hate 3 (Fused)"), "hate"))
+        XCTAssertTrue(fightMatches(fight("a rat", zone: "The Plane of Hate 3 (Fused)"), "fused"))
+        XCTAssertFalse(fightMatches(fight("a rat", zone: nil), "hate"))
+    }
+
+    func testAStarIsAnyGapInOrder() {
+        XCTAssertTrue(fightMatches(fight("a gloomstalker mermaid (9)"), "gloom*maid"))
+        XCTAssertFalse(fightMatches(fight("a gloomstalker mermaid (9)"), "maid*gloom"), "pieces keep their order")
+        XCTAssertTrue(fightMatches(fight("a gloomstalker mermaid (9)"), "*mer*"))
+        XCTAssertTrue(fightMatches(fight("x", zone: "Kedge Keep 1 (Awakened)"), "kedge*awake"))
+    }
+
+    func testTheRangeKeepsOnlyFightsInsideIt() {
+        let now: Int64 = 30 * 86_400_000
+        let rows = [fight("new", ts: now - 3_600_000), fight("twoDays", ts: now - 2 * 86_400_000),
+                    fight("tenDays", ts: now - 10 * 86_400_000), fight("old", ts: now - 40 * 86_400_000)]
+        XCTAssertEqual(fightRows(rows, range: .day, query: "", now: now).map(\.value), ["new"])
+        XCTAssertEqual(fightRows(rows, range: .threeDays, query: "", now: now).map(\.value), ["new", "twoDays"])
+        XCTAssertEqual(fightRows(rows, range: .week, query: "", now: now).map(\.value), ["new", "twoDays"])
+        XCTAssertEqual(fightRows(rows, range: .month, query: "", now: now).map(\.value), ["new", "twoDays", "tenDays"])
+        XCTAssertEqual(fightRows(rows, range: .month, query: "ten", now: now).map(\.value), ["tenDays"])
+    }
+}

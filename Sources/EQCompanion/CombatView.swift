@@ -130,7 +130,6 @@ struct CombatView: View {
                             selection: selection,
                             now: now,
                             onSelect: setSelection,
-                            search: searchFights,
                             loadHistory: loadFightHistory)
                 .disabled(hydrating)
             }
@@ -329,22 +328,6 @@ struct CombatView: View {
         return fightScopeOptions(r["snapshot"]["segments"].array ?? [])
     }
 
-    private func searchFights(_ query: String) async -> [ScopeOption] {
-        guard let r = try? await model.client.request(Op.combatSearchFights,
-                                                      ["query": .string(query), "limit": .int(200)])
-        else { return [] }
-        return (r["hits"].array ?? []).map { h in
-            let s = h["summary"]
-            return ScopeOption(value: s["id"].string ?? "",
-                               label: s["name"].string ?? "",
-                               name: s["name"].string ?? "",
-                               dps: s["dps"].double ?? 0,
-                               startTs: s["startTs"].int64 ?? 0,
-                               durationSec: s["durationSec"].double ?? 0,
-                               live: s["kind"].string == "current",
-                               zone: s["zone"].string)
-        }
-    }
 }
 
 /// The combat log's UNPARSED half. `showUnparsed` is filtered engine-side before the ring is

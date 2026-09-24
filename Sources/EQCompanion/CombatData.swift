@@ -1127,3 +1127,45 @@ func fightDays(_ rows: [ScopeOption], now: Int64, calendar: Calendar = .current)
     if !undated.isEmpty { out.append(FightDay(key: "undated", label: "Undated", rows: undated)) }
     return out
 }
+
+// MARK: - Fight picker range and filter
+
+/// How far back the fight picker lists, measured back from now.
+enum FightRange: String, CaseIterable, Identifiable {
+    case day = "24h", threeDays = "3d", week = "7d", month = "30d"
+    var id: String { rawValue }
+    var label: String { "Last \(rawValue)" }
+    var ms: Int64 {
+        switch self {
+        case .day: return 86_400_000
+        case .threeDays: return 3 * 86_400_000
+        case .week: return 7 * 86_400_000
+        case .month: return 30 * 86_400_000
+        }
+    }
+}
+
+/// Does a fight match what was typed? Case-insensitive, against its name and its zone, anywhere in
+/// either: `gloom` finds "a gloomwater mermaid" and "Estrella of Gloomwater". A `*` stands for any
+/// run of characters, so `gloom*maid` needs "gloom" and later "maid". An empty query matches all.
+func fightMatches(_ o: ScopeOption, _ query: String) -> Bool {
+    let pieces = query.lowercased().split(separator: "*").map { $0.trimmingCharacters(in: .whitespaces) }
+        .filter { !$0.isEmpty }
+    if pieces.isEmpty { return true }
+    func inOrder(_ text: String) -> Bool {
+        let hay = text.lowercased()
+        var from = hay.startIndex
+        for p in pieces {
+            guard let r = hay.range(of: p, range: from..<hay.endIndex) else { return false }
+            from = r.upperBound
+        }
+        return true
+    }
+    return inOrder(o.name) || inOrder(o.label) || inOrder(o.zone ?? "")
+}
+
+/// The picker's rows for a range and a query: the fights that started inside the window and match.
+func fightRows(_ rows: [ScopeOption], range: FightRange, query: String, now: Int64) -> [ScopeOption] {
+    let since = now - range.ms
+    return rows.filter { $0.startTs >= since && fightMatches($0, query) }
+}
