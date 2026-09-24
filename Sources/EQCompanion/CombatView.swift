@@ -297,7 +297,7 @@ struct CombatView: View {
             }
             .padding(.horizontal, 4).padding(.vertical, 2)
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.border))
-            .frame(maxWidth: 560)
+            .frame(maxWidth: 560, alignment: .leading)
 
             Spacer(minLength: 8)
             headlineStat
