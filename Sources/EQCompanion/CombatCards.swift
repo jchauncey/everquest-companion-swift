@@ -128,37 +128,27 @@ enum MeterMode: String, CaseIterable, Hashable {
     }
 }
 
-/// The drill token — ONE subject at a time, so the panel always has exactly one breadcrumb.
-enum CombatDrill: Hashable {
-    /// a source's flat ability list (the meter drill). `name` is the identity that crosses fights.
-    case entity(id: String, name: String)
-
-    /// Your own breakdown — by class, then ability by ability. Where the Outgoing meter opens:
-    /// "All" above it goes back to the ranked list of everyone.
-    static let you = CombatDrill.entity(id: "you", name: "You")
-}
-
-/// The dashboard's ANCHOR PANEL — the source meter at level 1 and, when drilled, one subject.
+/// The dashboard's ANCHOR PANEL — straight to the breakdown, never a ranked list to click into:
+/// Outgoing is YOUR damage (by class, then ability by ability, your pet as one row of it), Incoming
+/// is everything that hit you with each attacker's own abilities under it, and Healing is each
+/// healer with its spells under it.
 struct CombatMeterCard: View {
     var seg: JSONValue
     var timeline: JSONValue
     var mode: MeterMode
-    var meterScope: MeterScope
-    var roster: JSONValue
     var ringless: String
-    /// Colours your abilities by class and adds up your damage per class, in the drill. nil when the
-    /// loadout or the lanes' classes are not known yet.
+    /// Colours your abilities by class and adds up your damage per class. nil when the loadout or
+    /// the lanes' classes are not known yet.
     var classes: ClassResolver? = nil
-    @Binding var drill: CombatDrill?
-    @State private var expanded: Set<String> = []
 
     private var entities: [JSONValue] { seg["entities"].array ?? [] }
+    private var you: JSONValue? { entities.first { $0["kind"].string == "you" } }
+    private var pets: [JSONValue] { entities.filter { $0["kind"].string == "pet" } }
 
     var body: some View {
         CombatCard(title: seg["name"].string ?? "", caps: false, trailing: { header }) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 3) {
-                    crumb
                     modeBody(mode)
                     if mode == .out { incomingHeals }
                 }
@@ -169,9 +159,8 @@ struct CombatMeterCard: View {
 
     // MARK: header
 
-    /// WHAT THE PANEL BELOW IS SHOWING, never the raw segment: the scoped ranked list at level 1,
-    /// or the drilled subject with its nested pets. The number carries no label, so it has to be
-    /// the one the visible rows add up to.
+    /// WHAT THE PANEL BELOW IS SHOWING: in the Outgoing dimension that is you and your pets, so the
+    /// headline is what the rows add up to, not the whole segment.
     private var shownTotals: (total: Double, dps: Double) {
         switch mode {
         case .heal:
@@ -179,15 +168,8 @@ struct CombatMeterCard: View {
         case .incoming:
             return (seg["inTotal"].double ?? 0, seg["inDps"].double ?? 0)
         case .out:
-            let all = meterSources(entities, combine: true)
-            let scoped = scopeSources(all, scope: meterScope, roster: roster)
-            let base = scopeTotals(all, scoped, total: seg["outTotal"].double ?? 0, dps: seg["outDps"].double ?? 0)
-            if case .entity(let id, let name)? = drill, let subject = resolveSubject(id: id, name: name) {
-                let pets = subject["kind"].string == "you" ? entities.filter { $0["kind"].string == "pet" } : []
-                let shown = (subject["total"].double ?? 0) + pets.reduce(0) { $0 + ($1["total"].double ?? 0) }
-                return panelTotals(shown: shown, total: base.total, dps: base.dps)
-            }
-            return base
+            let shown = (you?["total"].double ?? 0) + pets.reduce(0) { $0 + ($1["total"].double ?? 0) }
+            return panelTotals(shown: shown, total: seg["outTotal"].double ?? 0, dps: seg["outDps"].double ?? 0)
         }
     }
 
@@ -243,42 +225,6 @@ struct CombatMeterCard: View {
         return ("slow: not landed", Theme.textFaint)
     }
 
-    // MARK: crumb
-
-    private func resolveSubject(id: String, name: String) -> JSONValue? {
-        let pool = mode == .incoming ? (seg["incoming"].array ?? []) : entities
-        // The id is tried first and always wins; the NAME is the fallback, because half these ids
-        // are world instances (one spawn, one summon) and a re-summon renames the same row.
-        if let byId = pool.first(where: { $0["id"].string == id }) { return byId }
-        if name.isEmpty { return nil }
-        return pool.first { $0["name"].string == name }
-    }
-
-    @ViewBuilder
-    private var crumb: some View {
-        if drill != nil {
-            HStack(spacing: 6) {
-                Button { drill = nil } label: {
-                    HStack(spacing: 3) {
-                        Image(systemName: "chevron.left")
-                        Text("All")
-                    }
-                }
-                .buttonStyle(.plain).font(.caption).foregroundStyle(Theme.gold)
-                Text(crumbLabel).font(.caption).foregroundStyle(Theme.textDim).lineLimit(1)
-            }
-            .padding(.bottom, 2)
-        }
-    }
-
-    private var crumbLabel: String {
-        switch drill {
-        case .entity(let id, let name):
-            return resolveSubject(id: id, name: name)?["name"].string ?? name
-        case nil: return ""
-        }
-    }
-
     // MARK: bodies
 
     @ViewBuilder
@@ -290,58 +236,43 @@ struct CombatMeterCard: View {
         }
     }
 
+    /// Your damage: by class, then each ability (coloured by its class) with your pet as one row.
     @ViewBuilder
     private var outgoingBody: some View {
-        if case .entity(let id, let name)? = drill, let subject = resolveSubject(id: id, name: name) {
-            let pets = subject["kind"].string == "you" ? entities.filter { $0["kind"].string == "pet" } : []
-            let kind = subject["kind"].string
-            if kind == "you", let r = classes {
-                let shares = classBreakdown(you: subject, pets: pets, resolver: r,
-                                            durationSec: seg["durationSec"].double ?? 0)
+        if let you, (you["total"].double ?? 0) > 0 || !pets.isEmpty {
+            if let r = classes {
+                let shares = classBreakdown(you: you, pets: pets, resolver: r, durationSec: seg["durationSec"].double ?? 0)
                 if !shares.isEmpty {
                     Text("BY CLASS · you + pet").font(.system(size: 9, weight: .semibold)).foregroundStyle(Theme.textFaint)
                     ClassDpsBars(shares: shares)
                     Divider().overlay(Theme.border).padding(.vertical, 3)
                 }
             }
-            ForEach(nestedRows(subject, pets: pets)) { row in
+            ForEach(nestedRows(you, pets: pets, inline: true)) { row in
                 switch row {
                 case .skill(let s):
-                    skillBar(s, cls: kind == "you" ? classes?.classOf(s) : kind == "pet" ? classes?.petClass : nil)
+                    skillBar(s, cls: classes?.classOf(s))
                 case .pet(let p):
                     MeterBarRow(rank: nil, color: classes.map { ClassColor.of($0.petClass) } ?? CombatColor.pet,
                                 pct: p.pct, name: p.name, tag: classes.map { "pet · \($0.petClass)" } ?? "pet",
-                                right: "\(CFmt.num(p.total)) · \(CFmt.rate(p.dps))") {
-                        drill = .entity(id: p.id, name: p.name)
-                    }
+                                right: "\(CFmt.num(p.total)) · \(CFmt.rate(p.dps))")
                 }
             }
         } else {
-            let rows = scopeSources(meterSources(entities, combine: true), scope: meterScope, roster: roster)
-            if rows.isEmpty {
-                CombatNote("No damage yet.")
-            } else {
-                ForEach(Array(rows.enumerated()), id: \.element.id) { i, e in
-                    sourceBar(e, rank: i + 1) { drill = .entity(id: e.id, name: e.name) }
-                }
-            }
+            CombatNote("You did no damage in this selection.")
         }
     }
 
+    /// Everything that hit you: each attacker, and under it the abilities it hit you with.
     @ViewBuilder
     private var incomingBody: some View {
         let rows = (seg["incoming"].array ?? []).map(meterSource)
         if rows.isEmpty {
             CombatNote("Nothing hit you in this selection.")
         } else {
-            // The incoming direction has no drill: the enemy's flat skill list expands INLINE.
             ForEach(Array(rows.enumerated()), id: \.element.id) { i, e in
-                sourceBar(e, rank: i + 1) {
-                    if expanded.contains(e.id) { expanded.remove(e.id) } else { expanded.insert(e.id) }
-                }
-                if expanded.contains(e.id) {
-                    ForEach(flattenSkills(e.raw)) { s in skillBar(s, indent: 18) }
-                }
+                sourceBar(e, rank: rows.count > 1 ? i + 1 : nil)
+                ForEach(flattenSkills(e.raw)) { s in skillBar(s, indent: 18) }
             }
             defenseLine
         }
@@ -361,29 +292,27 @@ struct CombatMeterCard: View {
         }
     }
 
+    /// Each healer, and under it the spells it healed with.
     @ViewBuilder
     private var healingBody: some View {
         let h = seg["healing"]
         let healers = h["healers"].array ?? []
         if healers.isEmpty {
             CombatNote("No healing in this selection.")
-        } else if case .entity(let id, _)? = drill, let healer = healers.first(where: { $0["id"].string == id }) {
-            ForEach(Array((healer["spells"].array ?? []).enumerated()), id: \.offset) { _, s in
-                MeterBarRow(rank: nil, color: CombatColor.heal, pct: s["pct"].double ?? 0,
-                            name: s["name"].string ?? "",
-                            tag: s["classification"].string == "restored" ? nil : s["classification"].string,
-                            badges: [(spellStat(s), Theme.textDim)],
-                            right: laneAmount(s))
-            }
         } else {
             ForEach(Array(healers.enumerated()), id: \.offset) { i, healer in
-                MeterBarRow(rank: i + 1,
+                MeterBarRow(rank: healers.count > 1 ? i + 1 : nil,
                             color: healer["kind"].string == "pet" ? CombatColor.pet : CombatColor.heal,
                             pct: healer["pct"].double ?? 0,
                             name: healer["name"].string ?? "",
                             badges: [(healerStat(healer), Theme.textDim)],
-                            right: healerAmount(healer)) {
-                    drill = .entity(id: healer["id"].string ?? "", name: healer["name"].string ?? "")
+                            right: healerAmount(healer), bold: true)
+                ForEach(Array((healer["spells"].array ?? []).enumerated()), id: \.offset) { _, s in
+                    MeterBarRow(rank: nil, color: CombatColor.heal, pct: s["pct"].double ?? 0,
+                                name: s["name"].string ?? "",
+                                tag: s["classification"].string == "restored" ? nil : s["classification"].string,
+                                badges: [(spellStat(s), Theme.textDim)],
+                                right: laneAmount(s), indent: 18)
                 }
             }
             if (h["absorbedTotal"].double ?? 0) > 0 || (h["overheal"].double ?? 0) > 0 {
@@ -408,11 +337,12 @@ struct CombatMeterCard: View {
         }
     }
 
+
     // MARK: rows
 
     /// The badges a row carries when its numbers earn them (EntityRow.StatBadges): the hit rate
     /// only where swings were avoided — a 100% row would be furniture — and the resist rate.
-    private func sourceBar(_ e: MeterSource, rank: Int, action: @escaping () -> Void) -> some View {
+    private func sourceBar(_ e: MeterSource, rank: Int?) -> some View {
         var badges: [(String, Color)] = []
         if e.ambiguousHits > 0 { badges.append(("~\(e.ambiguousHits)", CombatColor.enemy)) }
         if e.misses > 0 { badges.append(("\(CFmt.pct0(e.hitPct)) hit", Theme.textDim)) }
@@ -425,8 +355,7 @@ struct CombatMeterCard: View {
                            tag: kindTag(e.kind),
                            badges: badges,
                            right: "\(CFmt.num(e.total)) · \(CFmt.rate(e.dps))\(crit)",
-                           bold: e.kind == "you",
-                           action: action)
+                           bold: e.kind == "you")
     }
 
     /// `you` and `enemy` get nothing: the direction filter already said which of the two you are
@@ -462,20 +391,24 @@ struct CombatMeterCard: View {
 
     // MARK: copy
 
+    /// The breakdown on screen as text: your abilities, or each attacker with its abilities.
     private func copyView() {
         var lines: [String] = []
         let t = shownTotals
         lines.append("\(seg["name"].string ?? "") · \(CFmt.rate(t.dps)) · \(CFmt.num(t.total)) · \(CFmt.dur(seg["durationSec"].double ?? 0))")
-        if case .entity(let id, let name)? = drill, let subject = resolveSubject(id: id, name: name) {
-            for (i, s) in flattenSkills(subject).enumerated() {
-                lines.append("\(i + 1). \(s.name)  \(CFmt.num(s.total))  \(CFmt.pct0(s.pct))")
-            }
-        } else {
-            let rows = mode == .incoming
-                ? (seg["incoming"].array ?? []).map(meterSource)
-                : scopeSources(meterSources(entities, combine: true), scope: meterScope, roster: roster)
-            for (i, e) in rows.enumerated() {
+        if mode == .incoming {
+            for (i, e) in (seg["incoming"].array ?? []).map(meterSource).enumerated() {
                 lines.append("\(i + 1). \(e.name)  \(CFmt.num(e.total))  \(CFmt.rate(e.dps))  \(CFmt.pct0(e.pct))")
+                for s in flattenSkills(e.raw) { lines.append("   \(s.name)  \(CFmt.num(s.total))  \(CFmt.pct0(s.pct))") }
+            }
+        } else if let you {
+            for (i, r) in nestedRows(you, pets: pets, inline: true).enumerated() {
+                switch r {
+                case .skill(let s):
+                    lines.append("\(i + 1). \(s.name)\(classes.map { " [\($0.classOf(s))]" } ?? "")  \(CFmt.num(s.total))")
+                case .pet(let p):
+                    lines.append("\(i + 1). \(p.name) (pet)  \(CFmt.num(p.total))  \(CFmt.rate(p.dps))")
+                }
             }
         }
         let pb = NSPasteboard.general

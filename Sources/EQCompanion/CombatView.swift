@@ -2,7 +2,7 @@
 //
 // The header is one wrapping row of controls like the Motes and Gear tabs: WHAT AM I LOOKING AT
 // (the Fight/Overall scope, then the encounter selector), then HOW AM I LOOKING AT IT
-// (Dashboard/Timeline, the direction filter, whose damage).
+// (Dashboard/Timeline, the direction). Each direction opens straight on its breakdown.
 //
 // The body is one mob at a time: a strip of its numbers with your stance (CombatPayout.swift), then
 // WHO (the source meter) and WHEN (the DPS curve), then WHAT FIRED (procs), your pet and the loot,
@@ -30,11 +30,7 @@ struct CombatView: View {
     @State private var zoneSelection = "zone"
     @State private var subTab: SubTab = .dashboard
     @State private var mode: MeterMode = .out
-    /// One preference, no per-surface chip (Preferences → Combat → "Whose damage the meters show").
-    private var meterScope: MeterScope { MeterScope.preferred }
     @State private var showUnparsed = false
-    /// Opens on your own breakdown (CombatDrill.you), not the ranked list.
-    @State private var drill: CombatDrill? = .you
     /// The row last picked from the fight list: its start and length bound the fight's own log lines.
     @State private var picked: ScopeOption?
     /// A finished fight's own lines, read back from the log file (the engine's `log.window`).
@@ -303,17 +299,10 @@ struct CombatView: View {
                   : "")
 
             if subTab == .dashboard {
-                Picker("", selection: Binding(get: { mode }, set: { setMode($0) })) {
+                Picker("", selection: Binding(get: { mode }, set: { mode = $0 })) {
                     ForEach(MeterMode.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.segmented).frame(width: 270)
-                // Only the two SOURCE dimensions are scoped: the Incoming list is always "what is
-                // hitting You", and no roster changes that.
-                if mode != .incoming {
-                    Chip(text: meterScope == .group && snapshot["roster"]["seen"].bool != true
-                            ? "\(meterScope.label) (no roster yet)" : meterScope.label)
-                        .help("Whose damage the meters show — Preferences → Combat")
-                }
             }
         }
     }
@@ -413,8 +402,7 @@ struct CombatView: View {
         let hasDetail = !detail.isNull
         let showProcs = procsHaveContent(segment["procs"])
         let meter = CombatMeterCard(seg: segment, timeline: detail, mode: mode,
-                                    meterScope: meterScope, roster: snapshot["roster"],
-                                    ringless: ringless, classes: classes, drill: $drill)
+                                    ringless: ringless, classes: classes)
         return VStack(alignment: .leading, spacing: 8) {
             if let note = detailNote { CombatNote(note) }
             if scope == .fight {
@@ -487,17 +475,8 @@ struct CombatView: View {
         if s == .overall, zoneSelection.isEmpty { zoneSelection = defaultSelection(.overall) }
     }
 
-    /// Picking another fight KEEPS the drill: the subject is resolved against the new segment, and
-    /// a segment without it shows level 1 while the token waits for one that has it.
     private func setSelection(_ v: String) {
         if scope == .fight { fightSelection = v } else { zoneSelection = v }
-    }
-
-    /// …and the one navigation that makes a drill meaningless: the three directions are three
-    /// different lists of subjects, so a token carried sideways means nothing where it lands.
-    private func setMode(_ m: MeterMode) {
-        drill = m == .out ? .you : nil
-        mode = m
     }
 
     /// Every fight the engine holds, for the picker's by-day history: one request when the picker

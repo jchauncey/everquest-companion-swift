@@ -43,8 +43,8 @@ struct CombatPage: View {
 
             PrefCard("Show your pet inside your damage") {
                 PrefToggle(label: "Show your pet inside your damage", isOn: $prefs.petInline,
-                           captionOn: "Your pet’s damage rides inside your bar, and appears once more as one row inside your breakdown - click it for the pet’s own skills. Your per-skill numbers stay yours; the pet’s damage is never folded into them.",
-                           captionOff: "Your pet gets its own bar beside yours, and each bar drills into its own skills.")
+                           captionOn: "On the floating meter your pet’s damage rides inside your bar. (The Combat tab always lists your pet as one row of your breakdown, with its own card below.)",
+                           captionOff: "On the floating meter your pet gets its own bar beside yours.")
             }
         }
     }

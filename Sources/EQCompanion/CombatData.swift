@@ -855,11 +855,13 @@ enum OwnRow: Identifiable, Hashable {
     }
 }
 
-func nestedRows(_ source: JSONValue, pets: [JSONValue]) -> [OwnRow] {
+/// `inline`: nest the pets here. The Combat tab always does (it has no level-1 list for a pet
+/// bar to sit in); elsewhere it follows the preference.
+func nestedRows(_ source: JSONValue, pets: [JSONValue], inline: Bool = Prefs.shared.petInline) -> [OwnRow] {
     var merged: [OwnRow] = source.isNull ? [] : flattenSkills(source).map { OwnRow.skill($0) }
     // The same one switch `meterSources` reads: with nesting off the pet keeps its own bar at
     // level 1 and nothing is nested here, so its damage is never listed twice.
-    for p in (Prefs.shared.petInline ? pets : []) {
+    for p in (inline ? pets : []) {
         merged.append(.pet(PetLine(id: p["id"].string ?? "",
                                    name: p["name"].string ?? "",
                                    total: p["total"].double ?? 0,
