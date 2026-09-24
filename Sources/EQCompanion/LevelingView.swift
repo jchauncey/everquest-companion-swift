@@ -167,10 +167,7 @@ struct LevelingView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     heroes
-                    HStack(alignment: .top, spacing: 12) {
-                        leftColumn.frame(maxWidth: .infinity, alignment: .leading)
-                        rightColumn.frame(minWidth: 300, idealWidth: 360, maxWidth: 420, alignment: .leading)
-                    }
+                    PanelBoard(board: "leveling", layout: layoutBinding, titles: Self.panelTitles) { panel($0) }
                 }
                 .padding(14)
             }
@@ -269,24 +266,50 @@ struct LevelingView: View {
         return cue + out
     }
 
-    // MARK: - The left column
+    // MARK: - The panels
 
-    @ViewBuilder
-    private var leftColumn: some View {
-        VStack(alignment: .leading, spacing: 12) {
+    /// Two columns: how you are progressing on the left, what to cast and what you bought on the
+    /// right. Every panel can be dragged to either column; the arrangement is saved on `Prefs`.
+    static let defaultLayout = PanelLayout(columns: [["pace", "progress"], ["spells", "ledger"]])
+    static let panelTitles = ["pace": "AA pace", "progress": "AA and level over time",
+                              "spells": "Best spells", "ledger": "AA abilities"]
+
+    private var layoutBinding: Binding<PanelLayout> {
+        Binding(get: { PanelLayout.normalized(.decode(Prefs.shared.levelingLayout), defaults: Self.defaultLayout) },
+                set: { Prefs.shared.levelingLayout = $0.encoded })
+    }
+
+    private func panel(_ id: String) -> AnyView? {
+        switch id {
+        case "pace":
+            guard let s = scoped, let pace = s.pace else { return nil }
+            return AnyView(aaPaceCard(pace, label: s.scope.label))
+        case "progress":
             if core.nothing || scoped == nil {
-                Card {
+                return AnyView(Card {
                     Text(core.hasBounds
                          ? "No level-ups or AA gains found in this character's log yet. They'll appear here live as you play."
                          : "Reading the log…")
                         .font(.callout).foregroundStyle(Theme.textDim)
-                }
-            } else if let s = scoped {
-                if let pace = s.pace { aaPaceCard(pace, label: s.scope.label) }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                })
+            }
+            guard let s = scoped else { return nil }
+            return AnyView(VStack(alignment: .leading, spacing: 12) {
                 scopeBar(s)
                 if s.aaVisible.count >= 1, core.aaCumulative.count >= 2 { aaCard(s) }
                 if core.leveling.levels.count >= 2 { levelCard(s) }
-            }
+            })
+        case "spells":
+            return AnyView(LvBestSpellsPanel(best: best, ranks: core.ranks, level: level, loading: catalogueLoading,
+                                             tab: $tab, query: $query, simulate: $simulate, sorts: $sorts,
+                                             search: searchResults,
+                                             onLevel: { viewedLevel = max(1, min(60, $0)) }))
+        case "ledger":
+            guard !core.ledger.isEmpty else { return nil }
+            return AnyView(LvAaLedgerPanel(rows: core.ledger, allocated: core.aa.allocated))
+        default:
+            return nil
         }
     }
 
@@ -386,19 +409,6 @@ struct LevelingView: View {
                 LvLevelStepChart(curve: s.curve, bands: s.bands, t0: s.window.t0, t1: s.window.t1)
                 LvZoneLegendStrip(rows: s.legend.rows, more: s.legend.more)
             }
-        }
-    }
-
-    // MARK: - The right column
-
-    @ViewBuilder
-    private var rightColumn: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            LvBestSpellsPanel(best: best, ranks: core.ranks, level: level, loading: catalogueLoading,
-                            tab: $tab, query: $query, simulate: $simulate, sorts: $sorts,
-                            search: searchResults,
-                            onLevel: { viewedLevel = max(1, min(60, $0)) })
-            LvAaLedgerPanel(rows: core.ledger, allocated: core.aa.allocated)
         }
     }
 }

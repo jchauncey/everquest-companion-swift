@@ -1,13 +1,13 @@
 // The AA ledger: every rank the log recorded, grouped into ladders and sorted by points invested.
 // Ported from src/renderer/src/features/leveling/LvAaLedgerPanel.tsx.
 //
-// THE LADDER IS AS TALL AS THE ACCOUNT. It is a LEDGER — you read it down — so the panel takes its
-// honest height and the footer sits under the last row where a total belongs.
+// It is a LEDGER — you read it down — so every ladder is listed, in a scroll area that stops growing
+// at `ladderListMaxHeight`, and the footer sits under the list where a total belongs.
 import SwiftUI
 import EQCompanionCore
 
-/// How many ladders draw before the rest fold behind `+N more`.
-private let ladderTopN = 25
+/// The ladder list scrolls inside the panel past this height.
+private let ladderListMaxHeight: CGFloat = 520
 
 private let paidColor = Color(hex: 0xb07fd0)
 private let autoColor = Color(hex: 0x7a7a7a)
@@ -96,7 +96,6 @@ struct LvAaLedgerPanel: View {
     /// the AA-points-spent headline this footer must equal.
     var allocated: Int
     @State private var open: Set<String> = []
-    @State private var showRest = false
 
     var body: some View {
         if rows.isEmpty {
@@ -113,20 +112,13 @@ struct LvAaLedgerPanel: View {
                     Text("every rank the log recorded, grouped into ladders and sorted by points invested - click a row for its rungs")
                         .font(.caption2).foregroundStyle(Theme.textFaint)
                         .fixedSize(horizontal: false, vertical: true)
-                    ForEach(rows.prefix(ladderTopN)) { r in
-                        AbilityRowView(row: r, max: maxInvested, open: $open)
-                    }
-                    if rows.count > ladderTopN {
-                        Button { showRest.toggle() } label: {
-                            Text("+\(rows.count - ladderTopN) more")
-                                .font(.system(size: 10)).foregroundStyle(Theme.textDim)
-                        }
-                        .buttonStyle(.plain)
-                        if showRest {
-                            ForEach(rows.dropFirst(ladderTopN)) { r in
+                    CappedScroll(maxHeight: ladderListMaxHeight) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(rows) { r in
                                 AbilityRowView(row: r, max: maxInvested, open: $open)
                             }
                         }
+                        .padding(.trailing, 6)
                     }
                     Divider().overlay(Theme.border)
                     Text(footer(summary))
