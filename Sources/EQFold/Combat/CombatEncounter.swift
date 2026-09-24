@@ -171,6 +171,8 @@ public final class Encounter {
     /// True count of every instant ever pushed, including ones the cap evicted. The only way a
     /// consumer can tell "the ring is full" from "the fight was that long".
     public var eventsTotal: Int64
+    /// The compact detail kept once the ring is dropped (Swift-only; see CombatDigest.swift).
+    public var digest: FightDigest?
     /// Stance/invocation spans that overlapped this encounter (absolute ts). Deliberately not the
     /// session state timeline: this list feeds the timeline view. Two lists, one writer.
     public var stanceSpans: [StanceRaw]
@@ -343,6 +345,7 @@ extension Encounter {
         if let prevDamageTs { o["prevDamageTs"] = .int(prevDamageTs) }
         if let lastOutTarget { o["lastOutTarget"] = .string(lastOutTarget) }
         if let coatAtEngage { o["coatAtEngage"] = coatAtEngage.checkpointState() }
+        if let digest { o["digest"] = digest.json }
         return .object(o)
     }
 
@@ -386,6 +389,10 @@ extension Encounter {
         for r in combatRows {
             guard let c = CoatSlot.fromCheckpoint(r) else { return nil }
             e.combatAtEngage.append(c)
+        }
+        if let d = v["digest"].presentValue {
+            guard let digest = FightDigest.fromJSON(d) else { return nil }
+            e.digest = digest
         }
         if hasSummary { e.summary = encSummary(e, "fight", 0) }
         return e

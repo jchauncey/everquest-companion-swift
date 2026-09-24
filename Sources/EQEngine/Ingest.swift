@@ -182,11 +182,13 @@ public struct CombatOpts: Equatable {
     public var maxSegments: Int
     /// Include the selected encounter's event timeline.
     public var timeline: Bool
+    /// Include the selected fight's compact digest when its ring is gone (Swift-only).
+    public var digest: Bool
 
     public init(selectedId: String? = nil, showUnparsed: Bool = false,
-                maxSegments: Int = 0, timeline: Bool = false) {
+                maxSegments: Int = 0, timeline: Bool = false, digest: Bool = false) {
         self.selectedId = selectedId; self.showUnparsed = showUnparsed
-        self.maxSegments = maxSegments; self.timeline = timeline
+        self.maxSegments = maxSegments; self.timeline = timeline; self.digest = digest
     }
 }
 

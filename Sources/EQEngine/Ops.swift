@@ -14,6 +14,7 @@ import Foundation
 import EQCompanionCore
 import EQFold
 import EQKnowledge
+import EQLog
 
 // The op table asks the World for everything — the fold, the subscriptions, the corpus, the client
 // spell table, the pushed log directory — and reaches past it for nothing.
@@ -243,6 +244,21 @@ public enum Ops {
         case "respawn.confirmSighting":
             return reply(id, ["confirmed": .bool(world.confirmSighting(params["rowId"].string ?? ""))])
 
+        // Swift-only: the attached log's own fight lines between two instants, read from disk
+        // (LogWindow.swift). A finished fight from before this launch has no combat log in memory.
+        // No log attached is `unavailable`; a window with no fight lines is an empty list.
+        case "log.window":
+            guard let log = world.mark().log else {
+                return error(id, .unavailable, "no log is attached")
+            }
+            let limit = Int(Swift.min(Swift.max(params["limit"].int64 ?? 2000, 1), 5000))
+            guard let got = LogWindow.read(log: log, from: params["from"].int64 ?? 0, to: params["to"].int64 ?? 0,
+                                           limit: limit, clock: EQLog.Clock.host(),
+                                           character: Ingest.characterOf(log)) else {
+                return error(id, .unavailable, "the log could not be read")
+            }
+            return reply(id, ["lines": .array(got.lines), "truncated": .bool(got.truncated)])
+
         // How old is this creature, as the resist fold knows it. It cannot ride the resist module's
         // snapshot: that publishes two integers, and an answer keyed by creature name would mean
         // holding every name anybody ever cons.
@@ -439,7 +455,8 @@ public enum Ops {
         return CombatOpts(selectedId: opts["selectedId"].string,
                           showUnparsed: opts["showUnparsed"].bool ?? false,
                           maxSegments: Int(Swift.max(opts["maxSegments"].int64 ?? defaultMaxSegments, 0)),
-                          timeline: opts["timeline"].bool ?? false)
+                          timeline: opts["timeline"].bool ?? false,
+                          digest: opts["digest"].bool ?? false)
     }
 
     /// What a JSON value IS, for a diagnostic that has to say why an answer was refused.
@@ -659,10 +676,13 @@ extension Ops {
             return .object(required: ["at": .integer], optional: [:], open: false)
         case "respawn.confirmSighting":
             return .object(required: ["rowId": .string], optional: [:], open: false)
+        case "log.window":
+            return .object(required: ["from": .integer, "to": .integer], optional: ["limit": .integer], open: false)
         case "combat.snapshot":
             let opts = Shape.object(required: [:],
                                     optional: ["selectedId": .string, "showUnparsed": .boolean,
-                                               "maxSegments": .integer, "timeline": .boolean],
+                                               "maxSegments": .integer, "timeline": .boolean,
+                                               "digest": .boolean],
                                     open: true)
             return .object(required: [:], optional: ["opts": opts], open: false)
         case "combat.searchFights":

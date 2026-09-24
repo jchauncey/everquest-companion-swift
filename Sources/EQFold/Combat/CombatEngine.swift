@@ -30,10 +30,14 @@ public struct SnapshotOpts: Sendable {
     public var maxSegments: Int
     /// Include the selected encounter's event timeline. Off by default: heavier than the bar view.
     public var timeline: Bool
+    /// Swift-only: include the selected fight's `FightDigest` when its event ring is gone. Absent
+    /// unless asked, so no ported answer changes shape.
+    public var digest: Bool = false
 
-    public init(selectedId: String? = nil, showUnparsed: Bool = false, maxSegments: Int = 0, timeline: Bool = false) {
+    public init(selectedId: String? = nil, showUnparsed: Bool = false, maxSegments: Int = 0, timeline: Bool = false,
+                digest: Bool = false) {
         self.selectedId = selectedId; self.showUnparsed = showUnparsed
-        self.maxSegments = maxSegments; self.timeline = timeline
+        self.maxSegments = maxSegments; self.timeline = timeline; self.digest = digest
     }
 
     /// The recorder's full-fat options.
@@ -199,6 +203,12 @@ public final class CombatEngine {
         // the selection carries no timeline.
         if opts.timeline {
             out["timeline"] = buildTimeline(st, selectedId, now)?.json ?? .null
+        }
+        // Swift-only, and only when asked: a fight whose ring the history cap dropped still has its
+        // digest (CombatDigest.swift). Absent when the ring is there or no digest exists.
+        if opts.digest, st.current?.id != selectedId,
+           let e = st.history.first(where: { $0.id == selectedId }), e.events.isEmpty, let d = e.digest {
+            out["digest"] = d.json
         }
         // The pet nudge is absent in every state but the one. It reads the same `now` the sweep above
         // used, so a nudge can never survive the poll that expired it.

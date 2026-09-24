@@ -193,6 +193,9 @@ public func finalizeCurrent(_ st: EngineState) {
     // finalized encounters. The aggregate and the summary are untouched.
     if st.history.count > TIMELINE_HISTORY_CAP {
         let dropIdx = st.history.count - 1 - TIMELINE_HISTORY_CAP
+        // Swift-only: the compact digest is taken from the ring before it goes, so an older fight
+        // still has a DPS curve and damage-by-mob to draw (CombatDigest.swift).
+        st.history[dropIdx].digest = FightDigest.build(st.history[dropIdx])
         st.history[dropIdx].events.removeAll()
     }
 }
