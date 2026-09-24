@@ -244,9 +244,6 @@ public enum Ops {
         case "respawn.confirmSighting":
             return reply(id, ["confirmed": .bool(world.confirmSighting(params["rowId"].string ?? ""))])
 
-        // Swift-only: the attached log's own fight lines between two instants, read from disk
-        // (LogWindow.swift). A finished fight from before this launch has no combat log in memory.
-        // No log attached is `unavailable`; a window with no fight lines is an empty list.
         // Swift-only: a finished fight's full timeline, rebuilt by folding its stretch of the log
         // (CombatReplay.swift), for a fight whose ring the engine no longer keeps. `notFound` when
         // the stretch replays to no fight starting near `from`.
@@ -260,6 +257,23 @@ public enum Ops {
                 return error(id, .notFound, "no fight was found in the log at that time")
             }
             return reply(id, ["timeline": tl])
+
+        // Swift-only: the kills, experience, ability points, loot and corpse coin stamped between two
+        // instants (FightRewards.swift), for the Combat tab's fight stats. Unattributed: the app
+        // knows the pull's mobs and decides which mob earned what.
+        case "combat.rewards":
+            guard let log = world.mark().log else {
+                return error(id, .unavailable, "no log is attached")
+            }
+            guard let r = FightRewards.read(log: log, from: params["from"].int64 ?? 0, to: params["to"].int64 ?? 0,
+                                            clock: EQLog.Clock.host(), character: Ingest.characterOf(log)) else {
+                return error(id, .unavailable, "the log could not be read")
+            }
+            return reply(id, r)
+
+        // Swift-only: the attached log's own fight lines between two instants, read from disk
+        // (LogWindow.swift). A finished fight from before this launch has no combat log in memory.
+        // No log attached is `unavailable`; a window with no fight lines is an empty list.
 
         case "log.window":
             guard let log = world.mark().log else {
@@ -694,6 +708,8 @@ extension Ops {
         case "log.window":
             return .object(required: ["from": .integer, "to": .integer], optional: ["limit": .integer], open: false)
         case "combat.replay":
+            return .object(required: ["from": .integer, "to": .integer], optional: [:], open: false)
+        case "combat.rewards":
             return .object(required: ["from": .integer, "to": .integer], optional: [:], open: false)
         case "combat.snapshot":
             let opts = Shape.object(required: [:],

@@ -6,11 +6,12 @@
 // is HOW AM I LOOKING AT IT (Dashboard/Timeline, the direction filter, whose damage, and hard
 // right the purely passive modifier readout).
 //
-// The body is the 2x2 dashboard — WHO (the source meter), WHEN (the DPS curve), WHAT FIRED
-// (procs), WHOM (damage by mob) — over a full-width combat log, or the per-event timeline.
+// The body is one mob at a time: a strip of its numbers (CombatPayout.swift), then WHO (the source
+// meter), WHEN (the DPS curve) and WHAT FIRED (procs), over a full-width combat log — or the
+// per-event timeline.
 //
-// EVERY NUMBER IS THE ENGINE'S. The only two derivations are the DPS curve and the damage-by-mob
-// grouping, both folded from the selected encounter's event ring exactly where the Electron
+// EVERY DAMAGE NUMBER IS THE ENGINE'S. The derivations are the DPS curve and a multi-mob pull's
+// one-mob view, both folded from the selected encounter's event ring exactly where the Electron
 // renderer folds them (CombatData.swift is the port); the meter's own totals are the engine's
 // SourceView bars and never touch the ring.
 
@@ -43,6 +44,8 @@ struct CombatView: View {
     @State private var replay = FightReplay()
     /// The mob chosen on the strip for a pull that was not picked mob-by-mob (the live or last fight).
     @State private var mobChoice: String?
+    /// The kills, experience and loot logged around the fight on screen (`combat.rewards`).
+    @State private var rewards = FightRewardsLoader()
     /// The live poll's window onto the fight list: the head row and the recent fights. The picker
     /// reads the whole history itself, on open (`loadFightHistory`).
     private let maxSegments = 100
@@ -124,6 +127,25 @@ struct CombatView: View {
         return opts.rest.first { $0.value == selection }
     }
 
+    /// The fight on screen's first and last instants: the finished fight's row, or the open fight's
+    /// own row in the segment list. nil for zone sessions.
+    private var fightSpan: (start: Int64, end: Int64)? {
+        guard scope == .fight else { return nil }
+        guard let r = finishedFight ?? (selection == combatLiveSelection ? opts.head : nil),
+              r.startTs > 0 else { return nil }
+        return (r.startTs, r.startTs + Int64(r.durationSec * 1000))
+    }
+
+    /// What the mob on screen (or the whole fight) paid out; nil until the log has been read.
+    private var payout: FightPayout? {
+        guard let span = fightSpan, !rewards.raw.isNull else { return nil }
+        let names: [String]
+        if let m = mob { names = [m] }
+        else if let one = pullMobs(fullDetail).first { names = [one.name] }
+        else { names = [fightMobName(fightSegment["name"].string ?? "")] }
+        return fightPayout(rewards.raw, mobs: names, fightEnd: span.end, coin: mobs.isEmpty)
+    }
+
     var body: some View {
         NeedsEngine {
             VStack(spacing: 10) {
@@ -160,6 +182,11 @@ struct CombatView: View {
                 // while following the game live, so an earlier fight's lines come from the file.
                 guard let f = finishedFight, f.startTs > 0 else { fightLog.clear(); replay.clear(); return }
                 await fightLog.load(model, startTs: f.startTs, durationSec: f.durationSec)
+            }
+            .task(id: "\(fightSpan.map { FightRewardsLoader.key(startTs: $0.start, endTs: $0.end, now: now) } ?? "")|\(model.epoch ?? 0)") {
+                // What the fight paid out, read from the log past its last swing (loot comes later).
+                guard let s = fightSpan else { rewards.clear(); return }
+                await rewards.load(model, startTs: s.start, endTs: s.end, now: now)
             }
             .task(id: "\(finishedFight.map(FightReplay.key) ?? "")|\(timeline.isNull)|\(model.epoch ?? 0)") {
                 // Only for a fight the engine has no ring for: rebuild its timeline from the log.
@@ -378,18 +405,22 @@ struct CombatView: View {
         }
     }
 
-    /// WHO, WHEN, WHAT FIRED, WHOM — and only the ones with something to say. A card with nothing
-    /// for this selection is left out rather than drawn as a large empty box: no per-event detail
-    /// (no ring and no digest) drops the curve and mob cards; no real procs drops Procs. Each cell
-    /// owns its own scroll box, so no panel can dictate the grid's size.
+    /// The mob's (or fight's) numbers in a strip, then WHO and WHEN, and WHAT FIRED when it has
+    /// something to say. A card with nothing for this selection is left out rather than drawn as a
+    /// large empty box: no per-event detail (no ring and no digest) drops the curve; no real procs
+    /// drops Procs. Each cell owns its own scroll box, so no panel can dictate the grid's size.
     private var dashboard: some View {
         let hasDetail = !detail.isNull
         let showProcs = procsHaveContent(segment["procs"])
         let meter = CombatMeterCard(seg: segment, timeline: detail, mode: mode,
                                     meterScope: meterScope, roster: snapshot["roster"],
                                     ringless: ringless, drill: $drill)
-        return VStack(alignment: .leading, spacing: 6) {
+        return VStack(alignment: .leading, spacing: 8) {
             if let note = detailNote { CombatNote(note) }
+            if scope == .fight {
+                CombatStatsStrip(seg: segment, payout: payout,
+                                 subject: mob ?? fightMobName(fightSegment["name"].string ?? ""))
+            }
             Grid(horizontalSpacing: 10, verticalSpacing: 10) {
                 GridRow {
                     meter
@@ -401,15 +432,9 @@ struct CombatView: View {
                         CombatProcsCard(seg: segment)
                     }
                 }
-                if hasDetail {
+                if hasDetail && showProcs {
                     GridRow {
-                        if showProcs { CombatProcsCard(seg: segment) }
-                        // The mob card's level-2 body renders inside the meter panel — so in the Healing
-                        // dimension its rows are read-only rather than a click that opens nothing.
-                        CombatMobCard(seg: segment, timeline: detail, ringless: ringless,
-                                      setDrill: mode == .heal ? nil : { drill = $0 },
-                                      drill: drill)
-                            .gridCellColumns(showProcs ? 1 : 2)
+                        CombatProcsCard(seg: segment).gridCellColumns(2)
                     }
                 }
             }

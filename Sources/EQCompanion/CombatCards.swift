@@ -574,68 +574,6 @@ struct CombatProcsCard: View {
     }
 }
 
-// MARK: - Damage by mob
-
-/// Outgoing damage grouped by defender. Clicking a row drives the MAIN panel down to the flat
-/// skill breakdown of everything you and your pet landed on that mob.
-struct CombatMobCard: View {
-    /// how many rows the card mounts; the rest are a count, not a scroll marathon.
-    private static let cap = 10
-    var seg: JSONValue
-    var timeline: JSONValue
-    var ringless: String
-    /// nil in the Healing dimension: there is no level-2 mob body for a click to open, so the
-    /// rows are read-only rather than an affordance that leads nowhere.
-    var setDrill: ((CombatDrill?) -> Void)?
-    var drill: CombatDrill?
-
-    var body: some View {
-        let mobs: MobBreakdown? = timeline.isNull ? nil : groupByTarget(timeline)
-        let rows = Array((mobs?.rows ?? []).prefix(Self.cap))
-        let a = (mobs?.estimated ?? false) ? "~" : ""
-        let selected: String? = { if case .target(let t)? = drill { return t }; return nil }()
-        return CombatCard(title: "Damage by mob", trailing: {
-            if let m = mobs, !m.rows.isEmpty {
-                Text("\(m.rows.count) mob\(m.rows.count == 1 ? "" : "s") · \(a)\(CFmt.num(m.total))")
-                    .font(.caption).foregroundStyle(Theme.textDim).monospacedDigit()
-            }
-        }) {
-            if let m = mobs {
-                if rows.isEmpty {
-                    CombatNote("Nothing landed on anything yet.")
-                } else {
-                    ScrollView {
-                        VStack(spacing: 2) {
-                            ForEach(Array(rows.enumerated()), id: \.element.id) { i, r in
-                                MeterBarRow(rank: i + 1,
-                                            color: CombatColor.enemy,
-                                            pct: r.pct,
-                                            name: r.target,
-                                            badges: r.resists > 0 ? [("\(a)\(r.resists) resist", CombatColor.resist)] : [],
-                                            right: "\(a)\(CFmt.num(r.total)) · \(CFmt.pct0(r.share))",
-                                            selected: selected == r.target,
-                                            action: setDrill.map { set in
-                                                {
-                                                    let next: CombatDrill? = selected == r.target ? nil : .target(r.target)
-                                                    set(next)
-                                                }
-                                            })
-                            }
-                            if m.rows.count > rows.count {
-                                Text("+\(m.rows.count - rows.count) more")
-                                    .font(.system(size: 10)).foregroundStyle(Theme.textFaint)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                        }
-                    }
-                }
-            } else {
-                CombatNote(ringless)
-            }
-        }
-    }
-}
-
 // MARK: - Combat log
 
 /// The classification-ring readout. Append-only, bounded by the engine's own ring, and it follows
