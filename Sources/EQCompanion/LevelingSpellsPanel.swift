@@ -7,8 +7,6 @@
 import SwiftUI
 import EQCompanionCore
 
-/// How many rows a tab draws before the rest fold behind a disclosure.
-private let lvBestSpellsTopN = 10
 
 /// The stepper the unlock panel has too — a second handle on the ONE viewed level.
 struct LvLevelStepper: View {
@@ -111,8 +109,8 @@ private struct SpellRowView: View {
 private let lvSpellFigureWidth: CGFloat = 86
 /// Below this panel width a row puts its name above its figures.
 private let lvSpellWideAt: CGFloat = 560
-/// The spell list scrolls inside the panel past this height.
-private let lvSpellListMaxHeight: CGFloat = 520
+/// The spell list never shrinks below this; beside a taller neighbour it grows to match it.
+private let lvSpellListMinHeight: CGFloat = 280
 
 private struct SpellDisclosure: View {
     var label: String
@@ -154,6 +152,9 @@ struct LvBestSpellsPanel: View {
     var onLevel: (Int) -> Void
     /// The panel's own width, measured: it decides one-line rows, not the window.
     @State private var width: CGFloat = 0
+    /// The rows' width inside the scroll area: narrower than the panel by the scroller when the
+    /// system shows one, and the column header takes it too so the figures stay under their headings.
+    @State private var listWidth: CGFloat = 0
     private var wide: Bool { width >= lvSpellWideAt }
 
     private var sort: LvBestSpellSort {
@@ -177,14 +178,19 @@ struct LvBestSpellsPanel: View {
                         .font(.caption).foregroundStyle(Theme.textDim)
                 } else {
                     columnHeader
-                    // The list scrolls inside the panel: the header, tabs and search stay put, and a
-                    // long tab no longer stretches the whole page.
-                    CappedScroll(maxHeight: lvSpellListMaxHeight) {
+                    // The list scrolls inside the panel and fills whatever height the panel is given:
+                    // beside the AA ladders it runs as tall as they do. The header, tabs and search
+                    // stay put.
+                    ScrollView(.vertical) {
                         VStack(alignment: .leading, spacing: 0) {
                             if searching { searchBody } else { tabBody }
                         }
                         .padding(.trailing, 6)
+                        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { listWidth = $0 }
                     }
+                    // Ideal pinned to the floor: under the row's fixedSize a ScrollView otherwise reports its
+                    // whole content as its ideal height, and the panel would grow to every spell.
+                    .frame(minHeight: lvSpellListMinHeight, idealHeight: lvSpellListMinHeight, maxHeight: .infinity)
                 }
             }
             .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width = $0 }
@@ -257,8 +263,11 @@ struct LvBestSpellsPanel: View {
             }
         }
         .padding(.top, 2)
-        // Matches the scroll area's gutter, so the figures stay under their headings.
+        // Matches the scroll area's gutter, and its width when a scroller takes some, so the
+        // figures stay under their headings.
         .padding(.trailing, 6)
+        .frame(width: listWidth > 0 ? listWidth : nil, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -268,12 +277,10 @@ struct LvBestSpellsPanel: View {
             Text("nothing this loadout owns yet").font(.caption).foregroundStyle(Theme.textFaint)
         } else {
             let sorted = LvBestSpellsReadout.sort(table.shown, sort)
-            ForEach(sorted.prefix(lvBestSpellsTopN)) { r in
+            // Every row: the list scrolls, so there is nothing to fold away.
+            ForEach(sorted) { r in
                 SpellRowView(row: r, columns: tab.columns, ranks: ranks, wide: wide)
             }
-            SpellDisclosure(label: "+\(max(0, sorted.count - lvBestSpellsTopN)) more",
-                            rows: Array(sorted.dropFirst(lvBestSpellsTopN)),
-                            columns: tab.columns, ranks: ranks, wide: wide)
             SpellDisclosure(label: lvOutOfEraLabel(table.outOfEra.count),
                             rows: LvBestSpellsReadout.sort(table.outOfEra, sort),
                             columns: tab.columns, ranks: ranks, wide: wide)

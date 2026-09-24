@@ -168,13 +168,16 @@ struct LevelingView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     heroes
                     paceTiles
+                    // One height for the pair: the row takes the taller panel's height (fixedSize), and
+                    // the spell list, which fills its panel, grows to meet the AA ladders.
                     HStack(alignment: .top, spacing: 12) {
-                        spellsPanel.frame(maxWidth: .infinity, alignment: .top)
+                        spellsPanel.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                         if !core.ledger.isEmpty {
                             LvAaLedgerPanel(rows: core.ledger, allocated: core.aa.allocated)
                                 .frame(maxWidth: .infinity, alignment: .top)
                         }
                     }
+                    .fixedSize(horizontal: false, vertical: true)
                     progress
                 }
                 .padding(14)
