@@ -129,7 +129,7 @@ struct CombatPetCard: View {
         }) {
             HStack(alignment: .top, spacing: 14) {
                 abilities.frame(maxWidth: .infinity)
-                facts.frame(width: 220, alignment: .leading)
+                facts.frame(width: 170, alignment: .leading)
             }
         }
     }
@@ -173,7 +173,7 @@ struct CombatPetCard: View {
             } else {
                 fact("TOOK", pet.takenTotal > 0 ? CFmt.num(pet.takenTotal) : "nothing",
                      pet.taken.prefix(3).map { "\($0.name) \(CFmt.num($0.total))" + ($0.misses > 0 ? " · \($0.misses) missed" : "") })
-                fact("HEALED", CFmt.num(pet.selfHealed + pet.healedByOthers),
+                fact("HEALED", pet.selfHealed + pet.healedByOthers > 0 ? CFmt.num(pet.selfHealed + pet.healedByOthers) : "nothing",
                      [pet.selfHealed > 0 ? "itself \(CFmt.num(pet.selfHealed))" : nil,
                       pet.healedByOthers > 0 ? "by others \(CFmt.num(pet.healedByOthers))" : nil].compactMap { $0 })
                 if !pet.buffs.isEmpty {

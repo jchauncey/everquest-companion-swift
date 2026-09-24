@@ -1,14 +1,12 @@
 // THE COMBAT TAB — the Electron app's Combat surface, natively.
 //
-// SUBJECT, then LENS. The header is two ranks that answer two different questions in the order
-// you actually ask them: line 1 is WHAT AM I LOOKING AT (the Fight/Overall scope fused to the
-// encounter selector, and hard right the selected fight's dps at the size that claims it); line 2
-// is HOW AM I LOOKING AT IT (Dashboard/Timeline, the direction filter, whose damage, and hard
-// right the purely passive modifier readout).
+// SUBJECT, then LENS, in plain rows like the other tabs' headers: line 1 is WHAT AM I LOOKING AT
+// (the Fight/Overall scope fused to the encounter selector); line 2 is HOW AM I LOOKING AT IT
+// (Dashboard/Timeline, the direction filter, whose damage).
 //
-// The body is one mob at a time: a strip of its numbers (CombatPayout.swift), then WHO (the source
-// meter), WHEN (the DPS curve) and WHAT FIRED (procs), over a full-width combat log — or the
-// per-event timeline.
+// The body is one mob at a time: a strip of its numbers with your stance (CombatPayout.swift), then
+// WHO (the source meter) and WHEN (the DPS curve), then WHAT FIRED (procs), your pet and the loot,
+// over a full-width combat log — or the per-event timeline.
 //
 // EVERY DAMAGE NUMBER IS THE ENGINE'S. The derivations are the DPS curve and a multi-mob pull's
 // one-mob view, both folded from the selected encounter's event ring exactly where the Electron
@@ -270,20 +268,21 @@ struct CombatView: View {
 
     // MARK: - Header
 
+    /// Plain rows, like the other tabs' headers: the tab's name with WHAT (scope + fight), then HOW
+    /// (the lens). The fight's numbers and your stance live in the stats strip below, not here.
     private var header: some View {
-        VStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             subjectLine
             lensLine
         }
-        .padding(.horizontal, 10).padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.paper))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
     }
 
     /// LINE 1 — SUBJECT. The scope toggle is fused tight against the encounter selector as ONE
     /// unit, because scope is not a peer of anything: it only decides what that selector may LIST.
     private var subjectLine: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
+            Image(systemName: "chart.bar.fill").foregroundStyle(Theme.gold)
+            Text("Combat").font(.title2.weight(.semibold))
             HStack(spacing: 4) {
                 SegmentPicker(selection: Binding(get: { scope }, set: { setScope($0) }),
                               options: [(CombatScope.fight, "Fight"), (.overall, "Overall")])
@@ -298,31 +297,12 @@ struct CombatView: View {
             .padding(.horizontal, 4).padding(.vertical, 2)
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.border))
             .frame(maxWidth: 560, alignment: .leading)
-
-            Spacer(minLength: 8)
-            headlineStat
-        }
-    }
-
-    /// The subject line's payoff: outgoing dps is what this tab is for, so it gets the size and
-    /// the accent; total and duration ride along dim, as the context that makes the rate mean
-    /// something.
-    @ViewBuilder
-    private var headlineStat: some View {
-        if !segment.isNull {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(CFmt.rate(segment["outDps"].double ?? 0))
-                    .font(.system(size: 17.5, weight: .bold)).foregroundStyle(Theme.gold).monospacedDigit()
-                Text("\(CFmt.num(segment["outTotal"].double ?? 0)) · \(CFmt.dur(segment["durationSec"].double ?? 0))")
-                    .font(.caption).foregroundStyle(Theme.textFaint).monospacedDigit()
-            }
-            .lineLimit(1)
+            Spacer(minLength: 0)
         }
     }
 
     /// LINE 2 — LENS, left to right in decreasing consequence: the view switch (the tab's own
-    /// navigation), the direction filter, whose damage, then right-aligned the purely passive
-    /// readout — modifier slots and the in-combat dot, which are STATE and not controls.
+    /// navigation), the direction filter, then whose damage.
     private var lensLine: some View {
         HStack(spacing: 8) {
             SegmentPicker(selection: Binding(get: { subTab }, set: { v in
@@ -348,29 +328,26 @@ struct CombatView: View {
                 }
             }
 
-            Spacer(minLength: 8)
-            passiveStatus
+            Spacer(minLength: 0)
         }
     }
 
-    /// Stance, invocation and the blade coats. The DISPLAY drops the jargon — the categories read
-    /// as strange next to a value like "Berserker" — and simply numbers the two slots.
-    @ViewBuilder
-    private var passiveStatus: some View {
+    /// Your stance, invocation and blade coats — as they are NOW, so they ride with the fight on
+    /// screen only when that is the current or last one. The display drops the jargon and simply
+    /// numbers the slots; the tooltip names them.
+    private var modifiers: [StatModifier] {
+        guard scope == .fight, selection == combatLiveSelection else { return [] }
         let stance = snapshot["stance"]
-        let coats = coatNames
-        HStack(spacing: 6) {
-            if let s = stance["stance"].string { modifierSlot(1, s, Theme.gold) }
-            if let i = stance["invocation"].string { modifierSlot(2, i, Color(hex: 0xa98fe0)) }
-            if !coats.isEmpty { modifierSlot(3, coats.joined(separator: " · "), Color(hex: 0xc46fd2)) }
-            if snapshot["inCombat"].bool == true {
-                HStack(spacing: 4) {
-                    Circle().fill(Theme.green).frame(width: 7, height: 7)
-                    Text("in combat").font(.caption).foregroundStyle(Theme.textDim)
-                }
-            }
+        var out: [StatModifier] = []
+        if let s = stance["stance"].string { out.append(.init(slot: 1, what: "combat stance", value: s, color: Theme.gold)) }
+        if let i = stance["invocation"].string {
+            out.append(.init(slot: 2, what: "invocation", value: i, color: Color(hex: 0xa98fe0)))
         }
-        .lineLimit(1)
+        let coats = coatNames
+        if !coats.isEmpty {
+            out.append(.init(slot: 3, what: "blade coats", value: coats.joined(separator: " · "), color: Color(hex: 0xc46fd2)))
+        }
+        return out
     }
 
     /// Utility first, then the venom stack — the order the pill truncates from the right in.
@@ -382,17 +359,6 @@ struct CombatView: View {
         return slots.compactMap { $0["poison"].string }.map { p in
             p == "unknown" ? "unknown" : p.replacingOccurrences(of: " Poison", with: "").replacingOccurrences(of: " Venom", with: "")
         }
-    }
-
-    private func modifierSlot(_ n: Int, _ value: String, _ color: Color) -> some View {
-        HStack(spacing: 2) {
-            Text("\(n):").font(.system(size: 10)).foregroundStyle(Theme.textFaint)
-            Text(value.prefix(1).uppercased() + value.dropFirst())
-                .font(.caption.weight(.semibold)).foregroundStyle(color).lineLimit(1)
-        }
-        .padding(.horizontal, 5).padding(.vertical, 1)
-        .background(Capsule().fill(Color.white.opacity(0.04)))
-        .help("Modifier \(n) - \(n == 1 ? "combat stance" : n == 2 ? "invocation" : "blade coats"): \(value)")
     }
 
     // MARK: - Body
@@ -466,7 +432,8 @@ struct CombatView: View {
         return VStack(alignment: .leading, spacing: 8) {
             if let note = detailNote { CombatNote(note) }
             if scope == .fight {
-                CombatStatsStrip(seg: segment, payout: payout, classes: classShares,
+                CombatStatsStrip(seg: segment, payout: payout, classes: classShares, modifiers: modifiers,
+                                 inCombat: selection == combatLiveSelection && snapshot["inCombat"].bool == true,
                                  subject: mob ?? fightMobName(fightSegment["name"].string ?? ""))
             }
             Grid(horizontalSpacing: 10, verticalSpacing: 10) {
@@ -480,19 +447,32 @@ struct CombatView: View {
                         CombatProcsCard(seg: segment)
                     }
                 }
-                let procsBelow = hasDetail && showProcs
-                if procsBelow || pet != nil {
-                    GridRow {
-                        if procsBelow { CombatProcsCard(seg: segment).gridCellColumns(pet == nil ? 2 : 1) }
-                        if let p = pet {
-                            CombatPetCard(pet: p, logRead: !petLog.raw.isNull)
-                                .gridCellColumns(procsBelow ? 1 : 2)
-                        }
-                    }
-                }
             }
+            lowerRow(procs: hasDetail && showProcs)
         }
         .frame(maxHeight: .infinity)
+    }
+
+    /// WHAT FIRED, your pet and the loot, side by side and sharing the width. Each is there only
+    /// when it has something to show: no pet in the fight and the loot takes the pet's place; the
+    /// Overall scope has no corpse, so no loot. Loot alone is a short full-width row.
+    @ViewBuilder
+    private func lowerRow(procs: Bool) -> some View {
+        let loot = scope == .fight && !segment.isNull
+        let cards = (procs ? 1 : 0) + (pet != nil ? 1 : 0) + (loot ? 1 : 0)
+        if cards > 0 {
+            // With a pet, procs and loot are side columns and the pet (the widest card) takes the rest.
+            let side: CGFloat? = pet != nil ? 280 : nil
+            HStack(alignment: .top, spacing: 10) {
+                if procs { CombatProcsCard(seg: segment).frame(maxWidth: side ?? .infinity, maxHeight: .infinity) }
+                if let p = pet {
+                    CombatPetCard(pet: p, logRead: !petLog.raw.isNull)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                if loot { CombatLootCard(payout: payout).frame(maxWidth: side ?? .infinity, maxHeight: .infinity) }
+            }
+            .frame(height: cards == 1 && loot ? 120 : 190)
+        }
     }
 
     private var hydratingPanel: some View {
