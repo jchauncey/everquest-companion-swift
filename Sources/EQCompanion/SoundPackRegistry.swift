@@ -349,8 +349,9 @@ final class SoundPackRegistry {
 
         // One install per pack at a time: first-launch provisioning and a click on Install for the
         // same pack would otherwise race over the same pack directory.
-        guard await claim(pack.name) else { throw SoundPackError.busy(pack.name) }
-        defer { Task { @MainActor in release(pack.name) } }
+        // `install` is main-actor isolated (the class is), so the claim and release are plain calls.
+        guard claim(pack.name) else { throw SoundPackError.busy(pack.name) }
+        defer { release(pack.name) }
 
         let base = pack.rawBase
         let cespData = try await get("\(base)/openpeon.json", limit: Limits.manifestBytes)
@@ -423,9 +424,9 @@ final class SoundPackRegistry {
         static let packBytes = 100 << 20
     }
 
-    @MainActor private static var installing = Set<String>()
-    @MainActor private static func claim(_ name: String) -> Bool { installing.insert(name).inserted }
-    @MainActor private static func release(_ name: String) { installing.remove(name) }
+    private static var installing = Set<String>()
+    private static func claim(_ name: String) -> Bool { installing.insert(name).inserted }
+    private static func release(_ name: String) { installing.remove(name) }
 
     private static func packsDirChild(_ name: String) -> URL {
         AlertPlayer.packsDir.appendingPathComponent(name, isDirectory: true)
