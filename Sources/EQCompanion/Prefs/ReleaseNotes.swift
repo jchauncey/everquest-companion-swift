@@ -53,6 +53,33 @@ enum ReleaseNotes {
 
     /// Every release, NEWEST FIRST — the order the panel renders and every derivation below assumes.
     static let all: [ReleaseNote] = [
+        ReleaseNote(version: "1.1.0", date: "2026-09-24", entries: [
+            ReleaseEntry(.new, "The Overview is now a sheet of statistics about all your play. Tiles at the top show items looted, items sold, coin earned from selling, mobs killed, motes and your average fight DPS. Below them are cards for leveling, motes, DPS over time across every fight, loot and sales, kills, and the recent feeds."),
+            ReleaseEntry(.new, "The old Overview showed one fight and one mob, which the Combat tab already does. It could not answer the long-run questions: how much this character has sold, what drops most, whether your damage is getting better over the weeks."),
+            ReleaseEntry(.new, "Your sales are now counted from your log, split three ways: auto-sell, merchant sales and the Reward Chest's auto-sell. Items sold for nothing are counted too, and you can see which items paid the most. The Motes card adds up the same rows as the Motes tab, so the two can never disagree."),
+            ReleaseEntry(.new, "Any fight in your log, however old, now opens with its full detail: the DPS curve, the Timeline and its own combat log lines. The detail is read back from the log file, and a note says when a fight's detail was rebuilt that way."),
+            ReleaseEntry(.new, "Until now only your last 60 fights kept their detail. An older fight showed its meter beside three empty boxes, and its Timeline could not be opened. The first launch after this update reads your whole log once, so that every past fight gets its summary."),
+            ReleaseEntry(.new, "The Combat tab shows one mob at a time. Each mob of a multi-mob pull is its own row in the fight picker. A stats strip shows the mob's total dps, your damage with your pet's, what the mob did to you, and the experience and AA its kill gave. Its loot and corpse coin get a card of their own."),
+            ReleaseEntry(.new, "A pet card shows what your pet hit with, what it cast, what it took, and the heals and buffs on it."),
+            ReleaseEntry(.new, "Each direction now opens on its breakdown. Outgoing shows your damage by class and then ability by ability, with each ability's own dps and colour taken from the class that lands it, and your pet as its own row. Incoming lists each attacker with what it hit you with. Healing lists each healer with the spells it used."),
+            ReleaseEntry(.new, "Before, a pull was one lump of damage against several mobs. Finding out what you did meant ranking yourself against everyone and then drilling in."),
+            ReleaseEntry(.changed, "The fight picker lists every fight you have, grouped by day, for the last 24 hours, 3, 7 or 30 days. It filters as you type on the mob's name or the zone: \"gloom\" finds Estrella of Gloomwater, and * matches any gap. Older fights used to be reachable only by search, and Load more fights did nothing until you reopened the list."),
+            ReleaseEntry(.changed, "The Leveling tab has a fixed layout. AA pace sits in the row of stat tiles, and each tile names the time window it measures. Best spells and the AA list sit side by side at the same height, and each scrolls inside its own panel with nothing folded away. The AA and level charts run full width under the time-range bar."),
+            ReleaseEntry(.changed, "The Buffs tab is gone. The Timers tab now always shows every timer."),
+            ReleaseEntry(.changed, "Loading your log is more than twice as fast. A large log that took about half a minute to read on launch or on a character switch now takes about eleven seconds."),
+            ReleaseEntry(.fixed, "Restart Engine no longer leaves the old engine running. Each restart used to add another copy that kept reading your log and writing the same saved files."),
+            ReleaseEntry(.fixed, "Switching characters while the log was still loading could save a half-read history over the complete one on disk. That no longer happens."),
+            ReleaseEntry(.fixed, "Quitting while the app was saving could lose the last save. Quit now waits up to five seconds for the save to finish."),
+            ReleaseEntry(.fixed, "With no EverQuest install or no character logs, the banner used to spin on Starting forever. A character that failed to load stayed on Catching up with a bar that never moved. Both now say No log, with the reason. The failure card now goes away on its own once the engine recovers."),
+            ReleaseEntry(.fixed, "Respawn watches stay put. Two quick clicks, or a click while the log was loading, could drop watches, and a full reload of the log lost the list."),
+            ReleaseEntry(.fixed, "Launching the app no longer celebrates boss kills and quest turn-ins from your history as if they had just happened."),
+            ReleaseEntry(.fixed, "Your trusted casters and combo corrections could be ignored until the next character switch if they arrived while a character was loading. They now always apply."),
+            ReleaseEntry(.fixed, "A panel could stop updating and ignore your clicks until you switched characters. It no longer gets stuck."),
+            ReleaseEntry(.fixed, "Procs no longer counts a caster's own poison spells, such as Envenomed Bolt, as poison procs. The poison ledger now only appears when you have a poison coat on record."),
+            ReleaseEntry(.fixed, "The AA and level charts no longer draw past the left edge of their panel when the scope is Zone or Session."),
+            ReleaseEntry(.fixed, "Sound pack downloads are safer. Each file and each pack has a size limit, downloads only follow redirects to trusted hosts, and a failed install leaves nothing behind. A pack with an oddly named file no longer stops the whole install."),
+            ReleaseEntry(.fixed, "A bad pasted share code can no longer swell to tens of megabytes before being turned away as too long.")
+        ]),
         ReleaseNote(version: "1.0.2", date: "2026-09-22", entries: [
             ReleaseEntry(.new, "A Motes tab: where the Motes of Potential come from. Every counted kill and every mote you have looted are joined into one row per mob at one difficulty, with kills, corpses that gave a mote, drop rate, motes per kill and a column per grade."),
             ReleaseEntry(.new, "The question a farmer asks is where it is worth standing. Until now the answer was a memory of a good evening in one zone; the log had the numbers all along but nothing added them up."),
