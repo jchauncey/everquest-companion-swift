@@ -46,6 +46,8 @@ struct CombatView: View {
     @State private var mobChoice: String?
     /// The kills, experience and loot logged around the fight on screen (`combat.rewards`).
     @State private var rewards = FightRewardsLoader()
+    /// The pet's casts, damage taken, heals and buffs in the fight on screen (`combat.petLog`).
+    @State private var petLog = PetLogLoader()
     /// The live poll's window onto the fight list: the head row and the recent fights. The picker
     /// reads the whole history itself, on open (`loadFightHistory`).
     private let maxSegments = 100
@@ -146,6 +148,22 @@ struct CombatView: View {
         return fightPayout(rewards.raw, mobs: names, fightEnd: span.end, coin: mobs.isEmpty)
     }
 
+    /// The fight on screen is still open (its window grows).
+    private var fightIsOpen: Bool {
+        scope == .fight && selection == combatLiveSelection && opts.head?.live == true
+    }
+
+    private var petTaskKey: String {
+        guard let s = fightSpan, let name = segmentPet(fightSegment)?["name"].string else { return "" }
+        return PetLogLoader.key(pet: name, startTs: s.start, endTs: s.end, live: fightIsOpen, now: now)
+    }
+
+    /// Your pet's side of the mob (or fight) on screen; nil when you had no pet in it.
+    private var pet: PetBreakdown? {
+        guard scope == .fight, let p = segmentPet(segment) else { return nil }
+        return petBreakdown(p, log: petLog.raw, mob: mob)
+    }
+
     var body: some View {
         NeedsEngine {
             VStack(spacing: 10) {
@@ -182,6 +200,10 @@ struct CombatView: View {
                 // while following the game live, so an earlier fight's lines come from the file.
                 guard let f = finishedFight, f.startTs > 0 else { fightLog.clear(); replay.clear(); return }
                 await fightLog.load(model, startTs: f.startTs, durationSec: f.durationSec)
+            }
+            .task(id: "\(petTaskKey)|\(model.epoch ?? 0)") {
+                guard let s = fightSpan, let name = segmentPet(fightSegment)?["name"].string else { petLog.clear(); return }
+                await petLog.load(model, pet: name, startTs: s.start, endTs: s.end, live: fightIsOpen, now: now)
             }
             .task(id: "\(fightSpan.map { FightRewardsLoader.key(startTs: $0.start, endTs: $0.end, now: now) } ?? "")|\(model.epoch ?? 0)") {
                 // What the fight paid out, read from the log past its last swing (loot comes later).
@@ -432,9 +454,14 @@ struct CombatView: View {
                         CombatProcsCard(seg: segment)
                     }
                 }
-                if hasDetail && showProcs {
+                let procsBelow = hasDetail && showProcs
+                if procsBelow || pet != nil {
                     GridRow {
-                        CombatProcsCard(seg: segment).gridCellColumns(2)
+                        if procsBelow { CombatProcsCard(seg: segment).gridCellColumns(pet == nil ? 2 : 1) }
+                        if let p = pet {
+                            CombatPetCard(pet: p, logRead: !petLog.raw.isNull)
+                                .gridCellColumns(procsBelow ? 1 : 2)
+                        }
                     }
                 }
             }

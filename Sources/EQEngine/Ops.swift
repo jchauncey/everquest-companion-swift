@@ -258,6 +258,19 @@ public enum Ops {
             }
             return reply(id, ["timeline": tl])
 
+        // Swift-only: a pet's own side of a fight between two instants — its casts, resists, damage
+        // taken, heals and buffs, matched by its name (PetLog.swift).
+        case "combat.petLog":
+            guard let log = world.mark().log else {
+                return error(id, .unavailable, "no log is attached")
+            }
+            guard let r = PetLog.read(log: log, from: params["from"].int64 ?? 0, to: params["to"].int64 ?? 0,
+                                      pet: params["pet"].string ?? "", clock: EQLog.Clock.host(),
+                                      character: Ingest.characterOf(log)) else {
+                return error(id, .unavailable, "the log could not be read")
+            }
+            return reply(id, r)
+
         // Swift-only: the kills, experience, ability points, loot and corpse coin stamped between two
         // instants (FightRewards.swift), for the Combat tab's fight stats. Unattributed: the app
         // knows the pull's mobs and decides which mob earned what.
@@ -709,6 +722,8 @@ extension Ops {
             return .object(required: ["from": .integer, "to": .integer], optional: ["limit": .integer], open: false)
         case "combat.replay":
             return .object(required: ["from": .integer, "to": .integer], optional: [:], open: false)
+        case "combat.petLog":
+            return .object(required: ["from": .integer, "to": .integer, "pet": .string], optional: [:], open: false)
         case "combat.rewards":
             return .object(required: ["from": .integer, "to": .integer], optional: [:], open: false)
         case "combat.snapshot":

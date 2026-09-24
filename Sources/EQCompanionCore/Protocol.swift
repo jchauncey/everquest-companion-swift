@@ -255,6 +255,7 @@ public enum Op {
     public static let logWindow = "log.window"
     public static let combatReplay = "combat.replay"
     public static let combatRewards = "combat.rewards"
+    public static let combatPetLog = "combat.petLog"
     public static let knowledgeItem = "knowledge.item"
     public static let knowledgeMob = "knowledge.mob"
     public static let knowledgeSpell = "knowledge.spell"
