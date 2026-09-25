@@ -39,7 +39,7 @@ struct OverviewView: View {
                     HStack(alignment: .top, spacing: 14) {
                         OverviewLootSalesCard(loot: lootStats, sales: saleStats, trailing: link("All loot", .loot))
                             .frame(maxWidth: .infinity)
-                        OverviewKillsCard(kills: killStats, trailing: link("Open Mobs", .mobs)).frame(maxWidth: .infinity)
+                        OverviewKillsCard(kills: killStats).frame(maxWidth: .infinity)
                     }
                     .cardsFillRow()
                     HStack(alignment: .top, spacing: 14) {

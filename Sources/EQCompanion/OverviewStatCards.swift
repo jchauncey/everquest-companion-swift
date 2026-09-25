@@ -145,7 +145,8 @@ struct OverviewLootSalesCard: View {
 
 struct OverviewKillsCard: View {
     var kills: KillSummary
-    var trailing: AnyView
+    /// No link for now: the Mobs page it would open is out of the sidebar until it is revisited.
+    var trailing: AnyView? = nil
 
     var body: some View {
         Card("Kills", trailing: trailing) {
