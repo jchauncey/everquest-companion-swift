@@ -53,6 +53,15 @@ enum ReleaseNotes {
 
     /// Every release, NEWEST FIRST — the order the panel renders and every derivation below assumes.
     static let all: [ReleaseNote] = [
+        ReleaseNote(version: "1.1.1", date: "2026-09-25", entries: [
+            ReleaseEntry(.changed, "The Overview's Leveling card now covers all of your play instead of just the last hour. It shows your level and the level you started at, time played and time active, levels gained with the active time each one took, AA and kills with how many you get per active hour, a bar of active hours for each day you played, and your latest level-ups."),
+            ReleaseEntry(.changed, "The Overview's headline numbers are now cards that run the full width of the page. Cards that sit side by side are the same height, so a short card no longer leaves a gap under it."),
+            ReleaseEntry(.changed, "The stats strip on the Combat tab now uses the same cards as the Leveling tab and runs the full width of the page, with every card the same height."),
+            ReleaseEntry(.new, "Clicking a drop on a mob's loot card on the Combat tab now opens that item's card."),
+            ReleaseEntry(.fixed, "If your pet was already out when you started playing and you never gave it an order, the app counted its damage as someone else's. Now a pet you heal that also fights is counted as yours. The first launch after this update reads your log again once."),
+            ReleaseEntry(.fixed, "On the Combat tab, some mobs showed no kill, no loot and no damage to your pet, even though your log had all three. That no longer happens."),
+            ReleaseEntry(.fixed, "The Overview's Kills card no longer shows an Open Mobs link that went to a page you can't open.")
+        ]),
         ReleaseNote(version: "1.1.0", date: "2026-09-24", entries: [
             ReleaseEntry(.new, "The Overview is now a sheet of statistics about all your play. Tiles at the top show items looted, items sold, coin earned from selling, mobs killed, motes and your average fight DPS. Below them are cards for leveling, motes, DPS over time across every fight, loot and sales, kills, and the recent feeds."),
             ReleaseEntry(.new, "The old Overview showed one fight and one mob, which the Combat tab already does. It could not answer the long-run questions: how much this character has sold, what drops most, whether your damage is getting better over the weeks."),
