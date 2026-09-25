@@ -46,6 +46,8 @@ struct Card<Content: View>: View {
     var title: String?
     var trailing: AnyView?
     @ViewBuilder var content: () -> Content
+    /// A row of cards set to one height (`.cardsFillRow()`) stretches each to it.
+    @Environment(\.cardFillsRow) private var fillsRow
 
     init(_ title: String? = nil, trailing: AnyView? = nil, @ViewBuilder content: @escaping () -> Content) {
         self.title = title
@@ -67,7 +69,7 @@ struct Card<Content: View>: View {
             content()
         }
         .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: fillsRow ? .infinity : nil, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 8).fill(Theme.paper))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
     }
@@ -163,5 +165,25 @@ struct AccentCard<Content: View>: View {
         .background(RoundedRectangle(cornerRadius: 8).fill(Theme.paper))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(color.opacity(0.5), lineWidth: 1))
         .overlay(alignment: .leading) { RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 3).padding(.vertical, 10) }
+    }
+}
+
+// MARK: - Rows of cards, one height
+
+private struct CardFillsRowKey: EnvironmentKey { static let defaultValue = false }
+
+extension EnvironmentValues {
+    /// Cards stretch to the height their row offers — set by `cardsFillRow()`.
+    var cardFillsRow: Bool {
+        get { self[CardFillsRowKey.self] }
+        set { self[CardFillsRowKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// Side-by-side `Card`s at one height: the row takes its tallest card's height and every card
+    /// is drawn to it, so a short card leaves no gap under itself.
+    func cardsFillRow() -> some View {
+        environment(\.cardFillsRow, true).fixedSize(horizontal: false, vertical: true)
     }
 }

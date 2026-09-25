@@ -34,16 +34,19 @@ struct OverviewView: View {
                         levelingCard.frame(maxWidth: .infinity)
                         OverviewMotesCard(breakdown: motes, trailing: link("Open Motes", .motes)).frame(maxWidth: .infinity)
                     }
+                    .cardsFillRow()
                     OverviewFightsCard(fights: fights, trailing: link("Open Combat", .combat))
                     HStack(alignment: .top, spacing: 14) {
                         OverviewLootSalesCard(loot: lootStats, sales: saleStats, trailing: link("All loot", .loot))
                             .frame(maxWidth: .infinity)
                         OverviewKillsCard(kills: killStats, trailing: link("Open Mobs", .mobs)).frame(maxWidth: .infinity)
                     }
+                    .cardsFillRow()
                     HStack(alignment: .top, spacing: 14) {
                         dropsCard.frame(maxWidth: .infinity)
                         killsCard.frame(maxWidth: .infinity)
                     }
+                    .cardsFillRow()
                 }
                 .padding(16)
             }
