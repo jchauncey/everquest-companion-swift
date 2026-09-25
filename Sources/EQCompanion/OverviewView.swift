@@ -3,7 +3,7 @@ import Charts
 import EQCompanionCore
 
 /// The landing tab: a sheet of statistics about your play. The zone strip, a row of headline
-/// numbers, then Leveling (level and AA speed) beside Motes, DPS across every fight, Loot & sales
+/// numbers, then Leveling (your whole playtime: level, hours, levels, AA, kills, a bar a day) beside Motes, DPS across every fight, Loot & sales
 /// beside Kills, and the recent drops and kills feeds. Every card is a summary of a module the
 /// engine already publishes, and links to the tab that holds the detail.
 struct OverviewView: View {
@@ -13,7 +13,7 @@ struct OverviewView: View {
     @State private var loot = ModuleSnapshot()
     @State private var sales = ModuleSnapshot()
     @State private var kills = LiveView()
-    @State private var leveling = OverviewLevelingState()
+    @State private var playtime = OverviewPlaytime()
     @State private var drops: [DropRow] = []
     @State private var killSnap = ModuleSnapshot()
     @State private var conSnap = ModuleSnapshot()
@@ -57,7 +57,7 @@ struct OverviewView: View {
                 let snap = OverviewProgression(progression.state)
                 let who = character.state["level"]
                 let stated: (Int, Int64, String)? = who["level"].int.map { ($0, who["ts"].int64 ?? 0, who["source"].string ?? "ding") }
-                leveling = overviewLeveling(snap, statedLevel: stated)
+                playtime = overviewPlaytime(snap, statedLevel: stated)
             }
             .task(id: "\(model.moduleSeqs["loot"] ?? 0)|\(model.epoch ?? 0)") {
                 await loot.refresh(model, module: "loot")
@@ -128,59 +128,81 @@ struct OverviewView: View {
 
     // MARK: - Leveling
 
+    /// All of your play, like every other card here (OverviewPlaytime.swift): level, time played,
+    /// what it bought, and a bar per day you played.
     private var levelingCard: some View {
         Card("Leveling", trailing: link("Open Leveling", .leveling)) {
-            if leveling.empty {
+            if playtime.empty {
                 Text("Nothing folded yet.").foregroundStyle(Theme.textDim)
             } else {
-                Text("Last hour").font(.caption).foregroundStyle(Theme.textDim)
-                // Fixed-width tiles that wrap: a narrow window moves a tile down rather than
-                // squeezing its number and clipping its label.
+                Text("Since \(Format.date(ms: playtime.sinceTs))").font(.caption).foregroundStyle(Theme.textDim)
                 FlowLayout(spacing: 8) {
-                    ForEach(leveling.tiles) { t in
+                    ForEach(playtimeTiles) { t in
                         VStack(alignment: .leading, spacing: 2) {
-                            HStack(alignment: .firstTextBaseline, spacing: 3) {
-                                Text(t.value).font(.system(size: 22, weight: .semibold)).foregroundStyle(Theme.gold).monospacedDigit()
-                                    .lineLimit(1).fixedSize()
-                                if !t.unit.isEmpty { Text(t.unit).font(.caption2).foregroundStyle(Theme.textDim).fixedSize() }
-                            }
+                            Text(t.value).font(.system(size: 22, weight: .semibold)).foregroundStyle(Theme.gold).monospacedDigit()
+                                .lineLimit(1).fixedSize()
                             Text(t.label).font(.caption2).foregroundStyle(Theme.textDim).lineLimit(1)
                         }
                         .padding(8)
-                        .frame(width: 132, alignment: .leading)
+                        .frame(width: 150, alignment: .leading)
                         .background(RoundedRectangle(cornerRadius: 6).fill(Theme.paperRaised))
                         .help(t.title)
                     }
                 }
-                spark
-                Text("\(leveling.killRate) · \(leveling.activity)\(leveling.offline.map { " · \($0)" } ?? "")").font(.caption).foregroundStyle(Theme.textDim)
-                if let aa = leveling.aaLine { Text(aa).font(.caption).foregroundStyle(Theme.textDim) }
-                if let z = leveling.zoneLine { Text(z).font(.caption).foregroundStyle(Theme.textDim).lineLimit(1) }
-                if let h = leveling.history {
-                    Text(h + (leveling.verdict.map { " · \($0)" } ?? "")).font(.caption).foregroundStyle(Theme.textDim).lineLimit(1)
+                if !playtime.days.isEmpty { playDays }
+                if let h = playtime.history {
+                    Text(h).font(.caption).foregroundStyle(Theme.textDim).lineLimit(1)
                 }
-                if leveling.atCap { Chip(text: "at cap", color: Theme.orange) }
             }
         }
     }
 
-    private var spark: some View {
-        let peak = max(leveling.sparkPeak, 0.0001)
-        return HStack(alignment: .bottom, spacing: 2) {
-            ForEach(leveling.spark) { b in
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(b.zone.isEmpty ? Color.gray : sparkColor(b.zone))
-                    .frame(height: max(2, 36 * b.value / peak))
-                    .frame(maxWidth: .infinity)
-                    .help("\(Format.time(ms: b.t0)) · \(b.zone.isEmpty ? "zone unknown" : b.zone) · \(String(format: "%.2f", b.value)) levels")
-            }
+    private var playtimeTiles: [OverviewLevelingTile] {
+        let p = playtime
+        let hrs = { (ms: Double) in OverviewWords.duration(ms) }
+        var tiles: [OverviewLevelingTile] = []
+        if let l = p.level {
+            tiles.append(.init(id: "level", value: String(l), unit: "",
+                               label: p.firstLevel.map { $0 < l ? "level · from \($0)" : "level" } ?? "level",
+                               title: p.swaps > 0 ? "\(p.swaps) class \(p.swaps == 1 ? "swap" : "swaps") reset the level along the way" : "The level the log last stated"))
         }
-        .frame(height: 36)
+        tiles.append(.init(id: "played", value: hrs(Double(p.playedMs)), unit: "",
+                           label: "played · \(hrs(Double(p.activeMs))) active",
+                           title: "Online time since your first logged activity; active is the time with a kill, experience or loot at most 5 minutes apart"))
+        tiles.append(.init(id: "levels", value: String(p.levelUps), unit: "",
+                           label: p.activePerLevelMs.map { "levels · \(hrs($0)) each" } ?? "levels gained",
+                           title: "Level-ups logged; the average is active time per level"))
+        tiles.append(.init(id: "aa", value: String(p.aa), unit: "",
+                           label: p.aaPerActiveHour.map { "AA · \(OverviewWords.small($0))/hr" } ?? "AA earned",
+                           title: "Ability points from the gain lines; the rate is per active hour"))
+        tiles.append(.init(id: "kills", value: Format.count(p.kills), unit: "",
+                           label: p.killsPerActiveHour.map { "kills · \(OverviewWords.small($0))/hr" } ?? "kills",
+                           title: "Your kills (yours and your pet's killing blows); the rate is per active hour"))
+        return tiles
     }
 
-    private static let zonePalette: [Color] = [Theme.green, Theme.purple, Theme.blue, Theme.orange, Theme.gold, Color(hex: 0xd97fb0), Color(hex: 0x7fd6c2), Color(hex: 0xc0c0c0)]
-
-    private func sparkColor(_ zone: String) -> Color { Self.zonePalette[overviewZoneColorIndex(zone)] }
+    /// Active hours on each day you played.
+    private var playDays: some View {
+        Chart(playtime.days) { d in
+            BarMark(x: .value("Day", Date(timeIntervalSince1970: Double(d.start) / 1000), unit: .day),
+                    y: .value("Active hours", Double(d.activeMs) / 3_600_000))
+                .foregroundStyle(Theme.gold.opacity(d.levels >= 1 ? 1 : 0.6))
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) { v in
+                AxisGridLine().foregroundStyle(Theme.border)
+                AxisValueLabel { if let h = v.as(Double.self) { Text("\(Int(h))h").font(.caption2) } }
+            }
+        }
+        .chartXAxis {
+            AxisMarks(values: .automatic(desiredCount: 5)) { _ in
+                AxisValueLabel(format: .dateTime.month(.abbreviated).day(), centered: true).font(.caption2)
+            }
+        }
+        .frame(height: 90)
+        .help("Active hours per day you played - brighter on a day with a level gained. " +
+              "\(playtime.days.count) days since \(Format.date(ms: playtime.sinceTs)).")
+    }
 
     // MARK: - Recent drops
 
