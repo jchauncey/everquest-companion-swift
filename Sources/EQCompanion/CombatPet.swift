@@ -76,7 +76,7 @@ func petBreakdown(_ pet: JSONValue, log: JSONValue, mob: String?) -> PetBreakdow
     out.taken = (log["taken"].array ?? [])
         .map { PetBreakdown.Attacker(name: $0["attacker"].string ?? "", total: $0["total"].double ?? 0,
                                      hits: $0["hits"].int ?? 0, misses: $0["misses"].int ?? 0) }
-        .filter { a in mob.map { a.name.lowercased() == $0.lowercased() } ?? true }
+        .filter { a in mob.map { mobKey(a.name) == mobKey($0) } ?? true }
         .sorted { $0.total > $1.total }
     for h in log["healed"].array ?? [] {
         if h["healer"].string == "itself" { out.selfHealed += h["total"].double ?? 0 }

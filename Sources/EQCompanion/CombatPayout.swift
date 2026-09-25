@@ -45,10 +45,14 @@ let payoutEndSlackMs: Int64 = 5_000
 ///   same name dies again after the fight (the next camp of that mob).
 /// - Corpse coin names no mob, so it is counted only when `coin` is set (a one-mob fight): from the
 ///   kill until the next death after the fight.
+/// A mob's name as the log's own lines spell it: lowercased, without the spawn number the engine
+/// gives it ("Lord Nagafen (8)" → "lord nagafen"). A kill line or a corpse never carries the number.
+func mobKey(_ name: String) -> String { fightMobName(name.lowercased()) }
+
 func fightPayout(_ raw: JSONValue, mobs: [String], fightEnd: Int64, coin: Bool) -> FightPayout {
-    let names = Set(mobs.map { $0.lowercased() })
+    let names = Set(mobs.map(mobKey))
     let deaths = (raw["deaths"].array ?? [])
-        .map { (ts: $0["ts"].int64 ?? 0, name: ($0["name"].string ?? "").lowercased()) }
+        .map { (ts: $0["ts"].int64 ?? 0, name: mobKey($0["name"].string ?? "")) }
         .sorted { $0.ts < $1.ts }
     let lastIn = fightEnd + payoutEndSlackMs
     let ours = deaths.filter { names.contains($0.name) && $0.ts <= lastIn }
@@ -72,7 +76,7 @@ func fightPayout(_ raw: JSONValue, mobs: [String], fightEnd: Int64, coin: Bool) 
     var drops: [FightPayout.Drop] = []
     for l in raw["loot"].array ?? [] {
         let ts = l["ts"].int64 ?? 0
-        let source = (l["source"].string ?? "").lowercased()
+        let source = mobKey(l["source"].string ?? "")
         guard names.contains(source), ts >= firstKill - 1_000 else { continue }
         if deaths.contains(where: { $0.name == source && $0.ts > lastIn && $0.ts <= ts }) { continue }
         let item = l["item"].string ?? ""

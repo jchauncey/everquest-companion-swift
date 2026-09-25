@@ -40,6 +40,14 @@ final class FightPayoutTests: XCTestCase {
         XCTAssertEqual(p.copper, 500)
     }
 
+    func testTheEnginesSpawnNumberIsNotPartOfTheName() {
+        // The fight's events say "A gloom widow (8)"; the kill and the corpse say "A gloom widow".
+        let p = fightPayout(raw, mobs: ["A gloom widow (8)"], fightEnd: end, coin: false)
+        XCTAssertEqual(p.kills, 1)
+        XCTAssertEqual(p.expPct, 2.0)
+        XCTAssertEqual(p.loot.map(\.item), ["Widow Venom"])
+    }
+
     func testNoKillNoPayout() {
         let p = fightPayout(raw, mobs: ["a gloom matriarch"], fightEnd: end, coin: true)
         XCTAssertEqual(p, FightPayout())
