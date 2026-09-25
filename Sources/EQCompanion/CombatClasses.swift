@@ -11,7 +11,9 @@
 //   most melee class of the loadout (`meleePriority`).
 // - Your pet's damage goes to its summoner: the loadout's pet class (`petPriority`). The log does
 //   not say which spell made the pet, so this is the class that has pets, most-pet first.
-// - Anything else (a proc, an item click, a spell two of your classes share) is "Other".
+// - A spell two or three of your classes share goes to the one that gets it at the lowest level
+//   (the spell data lists each class's level): that is the class that can have been casting it.
+// - Anything else (an item click, a proc of no spell page, a skill none of them has) is "Other".
 import SwiftUI
 import EQCompanionCore
 
@@ -68,6 +70,8 @@ struct ClassResolver: Equatable {
     var loadout: [String]
     /// "category|lane" → the classes that can land it (the engine's answer).
     var lanes: [String: [String]]
+    /// "category|lane" → the level each class gets it at, where the spell data says.
+    var levels: [String: [String: Int]] = [:]
 
     static func key(_ lane: String, _ category: String) -> String { "\(category)|\(lane)" }
 
@@ -82,6 +86,10 @@ struct ClassResolver: Equatable {
         if category == "melee" {
             return meleePriority.first { mine.contains($0) } ?? meleeClass
         }
+        // Shared by several of your classes: the one that gets it first; a tie keeps loadout order.
+        let at = levels[Self.key(lane, category)] ?? [:]
+        let known = mine.filter { at[$0] != nil }
+        if let first = known.min(by: { at[$0]! < at[$1]! }) { return first }
         return otherClass
     }
 
@@ -129,6 +137,7 @@ func classBreakdown(you: JSONValue?, pets: [JSONValue], resolver: ClassResolver,
 @Observable
 final class LaneClassesLoader {
     private(set) var known: [String: [String]] = [:]
+    private(set) var levels: [String: [String: Int]] = [:]
     private var asked: Set<String> = []
 
     func ensure(_ model: AppModel, _ lanes: [(lane: String, category: String)]) async {
@@ -144,8 +153,11 @@ final class LaneClassesLoader {
             for w in want { asked.remove(ClassResolver.key(w.0, w.1)) }
             return
         }
-        for (w, c) in zip(want, classes) {
-            known[ClassResolver.key(w.0, w.1)] = (c.array ?? []).compactMap(\.string)
+        let lv = r["levels"].array ?? []
+        for (i, (w, c)) in zip(want, classes).enumerated() {
+            let k = ClassResolver.key(w.0, w.1)
+            known[k] = (c.array ?? []).compactMap(\.string)
+            if i < lv.count { levels[k] = (lv[i].object ?? [:]).compactMapValues { $0.int } }
         }
     }
 }

@@ -73,6 +73,14 @@ public func laneClassCandidates(_ index: SpellClassIndex, lane: String, category
     return castCandidates(index, spell)
 }
 
+/// The level each class gets a lane's spell at — empty for melee and for anything that is not a spell
+/// page. NOT A PORT, beside `laneClassCandidates`.
+public func laneClassLevels(_ levels: SpellClassLevelIndex, lane: String, category: String) -> [ClassAbbr: Int] {
+    if category == "melee" { return [:] }
+    let spell = lane.hasSuffix(" · proc") ? String(lane.dropLast(" · proc".count)) : lane
+    return levels[Names.spellCanonKey(spell)] ?? [:]
+}
+
 /// One observation, or `nil` when the event says nothing about class.
 private func make(_ ev: Event, _ source: String, _ label: String, _ candidates: [ClassAbbr]) -> ClassObservation? {
     if candidates.isEmpty { return nil }

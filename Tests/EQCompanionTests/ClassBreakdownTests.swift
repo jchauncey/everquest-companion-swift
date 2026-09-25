@@ -18,7 +18,11 @@ final class ClassBreakdownTests: XCTestCase {
         XCTAssertEqual(r.classOf(lane: "Melee", category: "melee"), "WAR", "a swing is the melee class's")
         XCTAssertEqual(r.classOf(lane: "Heat Blood", category: "dot"), "NEC")
         XCTAssertEqual(r.classOf(lane: "Tagar's Insects", category: "spell"), "SHM")
-        XCTAssertEqual(r.classOf(lane: "Disempower", category: "spell"), otherClass, "two of your classes have it")
+        XCTAssertEqual(r.classOf(lane: "Disempower", category: "spell"), otherClass,
+                       "two of your classes have it and the data gives no levels")
+        var withLevels = r
+        withLevels.levels = ["spell|Disempower": ["NEC": 16, "SHM": 14]]
+        XCTAssertEqual(withLevels.classOf(lane: "Disempower", category: "spell"), "SHM", "the class that gets it first")
         XCTAssertEqual(r.classOf(lane: "Vampiric Embrace · proc", category: "spell"), otherClass, "unknown")
         XCTAssertEqual(r.petClass, "NEC")
     }

@@ -42,7 +42,8 @@ to. Your pet is one row of it.
 
 How an ability finds its class: a spell goes to the one class of your loadout that can cast it;
 melee (Melee, Kick, Cleave…) to your most melee class; your pet to the class that has pets. A spell
-two of your classes share, an item click or an unknown proc is **Other**.
+two of your classes share goes to the one that gets it at the lower level. An item click or a proc
+with no spell behind it is **Other**.
 
 **Incoming** lists everything that hit you, each with the abilities it used, then how many swings
 you avoided and how. **Healing** lists each healer with the spells they healed with.

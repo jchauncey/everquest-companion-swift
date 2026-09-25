@@ -6,6 +6,13 @@ import EQLog
 @testable import EQEngine
 
 final class LaneClassesTests: XCTestCase {
+    func testASharedSpellsLevelsAreRead() {
+        let lv = Ops.spellClassLevels
+        XCTAssertEqual(laneClassLevels(lv, lane: "Envenomed Bolt VIII", category: "dot"), ["SHM": 49, "NEC": 50])
+        XCTAssertEqual(laneClassLevels(lv, lane: "Plague VI", category: "dot"), ["SHM": 49, "NEC": 52])
+        XCTAssertEqual(laneClassLevels(lv, lane: "Kick", category: "melee"), [:], "a skill has no spell level")
+    }
+
     func testLanesResolveThroughTheComboTables() {
         let idx = Ops.spellClasses
         XCTAssertTrue(laneClassCandidates(idx, lane: "Kick", category: "melee").contains("WAR"))

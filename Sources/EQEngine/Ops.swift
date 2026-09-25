@@ -57,6 +57,8 @@ public enum Ops {
 
     /// Spell → classes for `combat.laneClasses`, built once from the shared spell DB on first ask.
     static let spellClasses: SpellClassIndex = spellClassIndex(SpellDb.shared())
+    /// Spell → the level each class gets it at, for the same op.
+    static let spellClassLevels: SpellClassLevelIndex = spellClassLevelIndex(SpellDb.shared())
 
     /// The most hits this engine will rank, whoever asks.
     static let maxFightHits: Int64 = 500
@@ -264,11 +266,19 @@ public enum Ops {
         // Swift-only: which classes can land each combat lane ({lane, category}), in order — the
         // combo module's own spell and skill tables. The Combat tab colours your abilities by class.
         case "combat.laneClasses":
+            // `levels`, beside it: the level each class gets the lane's spell at, so the app can credit a
+            // spell two of your classes share to the one that has it first.
             let lanes = params["lanes"].array ?? []
-            return reply(id, ["classes": .array(lanes.map { l in
-                .array(laneClassCandidates(Ops.spellClasses, lane: l["lane"].string ?? "",
-                                           category: l["category"].string ?? "").map { .string($0) })
-            })])
+            return reply(id, [
+                "classes": .array(lanes.map { l in
+                    .array(laneClassCandidates(Ops.spellClasses, lane: l["lane"].string ?? "",
+                                               category: l["category"].string ?? "").map { .string($0) })
+                }),
+                "levels": .array(lanes.map { l in
+                    .object(laneClassLevels(Ops.spellClassLevels, lane: l["lane"].string ?? "",
+                                            category: l["category"].string ?? "").mapValues { .int(Int64($0)) })
+                }),
+            ])
 
         // Swift-only: a pet's own side of a fight between two instants — its casts, resists, damage
         // taken, heals and buffs, matched by its name (PetLog.swift).

@@ -137,3 +137,27 @@ public func spellClassIndex(_ db: SpellDb) -> SpellClassIndex {
     // `classesForSpell` sorts on the way out, so the stored form is sorted once instead.
     return index.mapValues { $0.sorted() }
 }
+
+// MARK: - Levels (NOT A PORT)
+
+/// `classBullet` with the level captured too: `* Shaman - Level 49` → ("SHM", 49).
+private let classLevelBullet = Re("\\*\(JS.S)*([A-Za-z][A-Za-z ]*?)\(JS.S)*-\(JS.S)*Level\(JS.S)*([0-9]+)")
+
+/// Spell canon key → the level each class gets it at (the lowest across the spell's ranks).
+public typealias SpellClassLevelIndex = [String: [ClassAbbr: Int]]
+
+/// Which class gets each spell first, so a spell two classes of a loadout share can be credited to
+/// the one that has it earliest. Swift-only: the Combat tab's class colouring reads it; the combo
+/// module's inference does not.
+public func spellClassLevelIndex(_ db: SpellDb) -> SpellClassLevelIndex {
+    var index: SpellClassLevelIndex = [:]
+    for spell in db.spells {
+        guard let classes = spell.classes else { continue }
+        for c in classLevelBullet.allCaptures(classes) {
+            guard let abbr = abbrByWikiName(JS.trim(c.s(1)).lowercased()), let level = Int(c.s(2)) else { continue }
+            let key = Names.spellCanonKey(spell.name)
+            index[key, default: [:]][abbr] = min(index[key]?[abbr] ?? Int.max, level)
+        }
+    }
+    return index
+}

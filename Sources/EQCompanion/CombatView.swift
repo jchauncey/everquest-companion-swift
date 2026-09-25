@@ -157,7 +157,7 @@ struct CombatView: View {
     /// loadout is known (it needs a /who or enough casts).
     private var classes: ClassResolver? {
         let loadout = loadoutClasses(combo.state, at: fightSpan?.start)
-        return loadout.isEmpty ? nil : ClassResolver(loadout: loadout, lanes: laneClasses.known)
+        return loadout.isEmpty ? nil : ClassResolver(loadout: loadout, lanes: laneClasses.known, levels: laneClasses.levels)
     }
 
     private var classShares: [ClassShare] {
