@@ -7,6 +7,8 @@ import EQCompanionCore
 
 // MARK: - Headline numbers
 
+/// The sheet's headline numbers, in the Leveling and Combat tabs' card style (`AccentCard`): each its
+/// own accent colour and icon, spread across the full width at one height.
 struct OverviewHeadline: View {
     var loot: LootSummary
     var sales: SalesSummary
@@ -15,32 +17,37 @@ struct OverviewHeadline: View {
     var fights: FightSeries
 
     var body: some View {
-        FlowLayout(spacing: 10) {
-            tile(Format.count(loot.items), "items looted",
-                 "\(Format.count(loot.distinct)) different items over \(Format.count(loot.lines)) loot lines")
-            tile(Format.count(sales.items), "items sold",
-                 "\(Format.count(sales.auto.items)) auto-sold at loot, \(Format.count(sales.vendor.items)) to merchants")
-            tile(Coin.text(sales.copper), "earned selling",
-                 "Auto-sell \(Coin.text(sales.auto.copper)) · merchants \(Coin.text(sales.vendor.copper))")
-            tile(Format.count(kills.kills), "mobs killed", "\(Format.count(kills.distinct)) different mobs")
-            tile(Format.count(motes.motes), "motes",
-                 motes.perKill.map { String(format: "%.2f per kill", $0) } ?? "no kills counted")
-            tile(fights.fights > 0 ? Format.rate(fights.average) : LootFmt.none, "average fight DPS",
-                 "Damage over active seconds across \(Format.count(fights.fights)) fights")
+        HStack(alignment: .top, spacing: 12) {
+            card(Format.count(loot.items), "items looted",
+                 "\(Format.count(loot.distinct)) different items", color: Theme.blue, icon: "shippingbox.fill")
+                .help("\(Format.count(loot.distinct)) different items over \(Format.count(loot.lines)) loot lines")
+            card(Format.count(sales.items), "items sold",
+                 "\(Format.count(sales.auto.items)) auto · \(Format.count(sales.vendor.items)) merchant",
+                 color: Theme.orange, icon: "tag.fill")
+                .help("\(Format.count(sales.auto.items)) auto-sold at loot, \(Format.count(sales.vendor.items)) to merchants")
+            card(Coin.text(sales.copper), "earned selling", "over \(Format.count(sales.sales)) sales",
+                 color: Theme.gold, icon: "dollarsign.circle.fill")
+                .help("Auto-sell \(Coin.text(sales.auto.copper)) · merchants \(Coin.text(sales.vendor.copper))")
+            card(Format.count(kills.kills), "mobs killed", "\(Format.count(kills.distinct)) different mobs",
+                 color: Theme.red, icon: "scope")
+            card(Format.count(motes.motes), "motes",
+                 motes.perKill.map { String(format: "%.2f per kill", $0) } ?? "no kills counted",
+                 color: Theme.purple, icon: "circle.hexagongrid.fill")
+            card(fights.fights > 0 ? Format.rate(fights.average) : LootFmt.none, "average fight DPS",
+                 "over \(Format.count(fights.fights)) fights", color: Theme.green, icon: "flame.fill")
+                .help("Damage over active seconds across \(Format.count(fights.fights)) fights")
         }
+        // One height for the row: the tallest card's, the others stretched to it.
+        .fixedSize(horizontal: false, vertical: true)
     }
 
-    private func tile(_ value: String, _ label: String, _ help: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(value).font(.system(size: 24, weight: .semibold)).foregroundStyle(Theme.gold).monospacedDigit()
-                .lineLimit(1).minimumScaleFactor(0.6)
-            Text(label).font(.caption).foregroundStyle(Theme.textDim).lineLimit(1)
+    private func card(_ value: String, _ label: String, _ sub: String, color: Color, icon: String) -> some View {
+        AccentCard(color: color, icon: icon, fill: true) {
+            Text(value).font(.system(size: 26, weight: .semibold)).foregroundStyle(color).monospacedDigit()
+                .lineLimit(1).minimumScaleFactor(0.5)
+            Text(label).font(.callout).foregroundStyle(Theme.text).lineLimit(1)
+            Text(sub).font(.caption).foregroundStyle(Theme.textDim).lineLimit(1).minimumScaleFactor(0.8)
         }
-        .padding(.horizontal, 12).padding(.vertical, 10)
-        .frame(width: 170, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.paper))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border))
-        .help(help)
     }
 }
 
