@@ -13,6 +13,9 @@ public final class Fold {
     public var combat: CombatEngine?
     let epochDetector: EpochDetector
     let sessionDetector = SessionDetector()
+    /// Your pet inferred from your heals when the game never names it (PetInference.swift). Off
+    /// unless the owner sets it — the app does; the parity oracles never do.
+    public var petInference: PetInference?
     private var derived: [Event] = []
     public private(set) var events: UInt64 = 0
     public private(set) var lastTs: Int64 = 0
@@ -41,6 +44,7 @@ public final class Fold {
         combat?.reset()
         epochDetector.reset()
         sessionDetector.reset()
+        petInference?.reset()
         derived.removeAll()
         events = 0
         lastTs = 0
@@ -65,6 +69,7 @@ public final class Fold {
         combat?.onEvent(ev, live: live, roster: registry.roster())
         if let d = epochDetector.observe(ev) { derived.append(d) }
         if let d = sessionDetector.observe(ev) { derived.append(d) }
+        if let d = petInference?.observe(ev, roster: registry.roster()) { derived.append(d) }
     }
 
     /// One wall-clock tick over the whole world — live only. The combat engine declares no tick.
@@ -93,7 +98,7 @@ public final class Fold {
 /// or any codec changes shape — a stale-format blob must read as "unusable, rescan", never as a
 /// subtly different world. The build-identity check on top of this lives with the caller; this
 /// number is for deliberate format breaks within one build lineage.
-public let foldCheckpointVersion = 3
+public let foldCheckpointVersion = 4
 
 extension Fold {
     /// The whole world at this instant: the Fold's own detectors and counters, every conforming
@@ -115,6 +120,7 @@ extension Fold {
             "modules": .object(modules),
         ]
         if let combat { o["combat"] = combat.checkpointState() }
+        if let petInference { o["petInference"] = petInference.checkpointState() }
         return .object(o)
     }
 
@@ -135,6 +141,9 @@ extension Fold {
         }
         if let combat {
             guard combat.restoreCheckpoint(state["combat"]) else { reset(); return false }
+        }
+        if let petInference {
+            guard petInference.restoreCheckpoint(state["petInference"]) else { reset(); return false }
         }
         restoreCounters(events: UInt64(eventCount), lastTs: ts)
         return true

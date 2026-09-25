@@ -70,6 +70,8 @@ public final class FoldSink: EventSink {
         let launchMs = Epoch.launchMs(inputs.clock)
         let f = Fold(registry: registryFor(inputs, launchMs), launchMs: launchMs)
             .withCombat(combatFor(inputs))
+        // Your pet from your heals when the game never names it — the app's fold only (Swift-only).
+        f.petInference = PetInference()
         // The app's persisted knowledge, put back before the first byte. Read, seed, then name this
         // fold's own bucket — `seedPersisted` does the last two as one call because their order is
         // load-bearing. It happens after `Fold.init` because the initializer resets every module

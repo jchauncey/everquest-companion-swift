@@ -15,8 +15,9 @@ import EQCompanionCore
 import EQLog
 
 enum CombatReplay {
-    /// How much log before the fight is folded first, for context.
-    static let leadInMs: Int64 = 5 * 60_000
+    /// How much log before the fight is folded first, for context — an hour, so a pet inferred from
+    /// your heals (PetInference.windowMs) is bound by the time the fight starts.
+    static let leadInMs: Int64 = 60 * 60_000
     /// How far past the fight's last instant to read, so its closure is seen.
     static let tailMs: Int64 = 10_000
     /// The replayed fight must start within this of the asked start to be taken as the same fight.
