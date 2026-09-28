@@ -1,8 +1,9 @@
 # EQ Companion docs
 
 - [Installing](installation.md) — requirements, install, pointing the app at your EverQuest logs.
-- [Building and developing](building.md) — make targets, releases, developer tools, architecture,
-  and how the port is verified.
+- [Building from source](../BUILD.md) — make targets, tests, developer tools, architecture, and
+  how the port is verified.
+- [Cutting a release](../RELEASE.md) — notes, tag, publish, and the update-signing key.
 
 ## The screens
 

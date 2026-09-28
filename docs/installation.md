@@ -3,12 +3,26 @@
 ## Requirements
 
 - macOS 14+
-- Xcode 16+ / Swift 6 toolchain (`swift --version`) to build it
 - EverQuest Legends running under CrossOver, Whisky, or Wine
 
-## Install
+## Install a release
 
-Build it and copy it into `/Applications`:
+1. Download the newest `EQCompanion-<version>.zip` from the
+   [Releases page](https://github.com/jchauncey/everquest-companion-swift/releases).
+2. Unzip it and drag **EQCompanion.app** into `/Applications`.
+3. Releases are ad-hoc signed, not notarized, so macOS quarantines a downloaded copy and says it "is
+   damaged and can't be opened". It is not damaged; clear the flag once:
+
+   ```sh
+   xattr -dr com.apple.quarantine /Applications/EQCompanion.app
+   ```
+
+4. Open it.
+
+## Build from source
+
+To run unreleased changes, or to work on the app, build it yourself — see [BUILD.md](../BUILD.md).
+In short (needs Xcode 16+):
 
 ```sh
 git clone https://github.com/jchauncey/everquest-companion-swift.git
@@ -16,21 +30,7 @@ cd everquest-companion-swift
 make install          # builds a release app and copies it to /Applications
 ```
 
-Or build without installing:
-
-```sh
-make app              # → dist/EQCompanion.app
-open dist/EQCompanion.app
-```
-
-The app is ad-hoc signed as it is built, so Gatekeeper allows the copy you built on your own
-machine. `make run` builds and launches from source for development.
-
-### A downloaded release
-
-Released builds are ad-hoc signed rather than notarized, so macOS quarantines a **downloaded** copy
-and calls it damaged. Every release's notes carry the one-line `xattr` command that clears it.
-Building from source has no such step.
+A copy you build is signed on your own machine, so it needs no quarantine step.
 
 ## Updates
 

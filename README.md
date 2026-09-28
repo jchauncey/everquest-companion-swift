@@ -11,24 +11,28 @@ One app process — no child process, no socket, no Electron.
 
 ## Getting started
 
-```sh
-git clone https://github.com/jchauncey/everquest-companion-swift.git
-cd everquest-companion-swift
-make install          # builds a release app and copies it to /Applications
-```
+**[Download the latest release](https://github.com/jchauncey/everquest-companion-swift/releases/latest)**
+— or browse [every release](https://github.com/jchauncey/everquest-companion-swift/releases). Unzip
+it, drag **EQCompanion.app** into `/Applications`, and clear the quarantine flag once (releases are
+not notarized; the command is in the release notes and in [Installing](docs/installation.md)).
+Releases after 1.1.1 update themselves from inside the app (**Check for Updates…**).
 
 Then type `/log on` in game. The app finds your EverQuest install and its logs by itself; if it
-cannot, point it there under **Preferences → Game**. The details, and what to do when a panel is
-empty, are in [Installing](docs/installation.md).
+cannot, point it there under **Preferences → Game**.
+
+Prefer to build it yourself? See [BUILD.md](BUILD.md).
 
 ## Documentation
 
-- [Installing](docs/installation.md) — requirements, install, pointing the app at your logs.
+- [Installing](docs/installation.md) — requirements, install, updates, pointing the app at your logs.
 - [The screens](docs/README.md) — what each tab shows and how to read it:
   [Overview](docs/overview.md), [Combat](docs/combat.md), [Leveling](docs/leveling.md),
   [Motes](docs/motes.md), [Gear](docs/gear.md).
-- [Building and developing](docs/building.md) — make targets, releases, developer tools, the
+- [BUILD.md](BUILD.md) — building from source, make targets, tests, developer tools, the
   architecture, and how the port is verified against the original engine.
+- [RELEASE.md](RELEASE.md) — cutting a release: notes, tag, publish, and the update-signing key.
+- [Releases](https://github.com/jchauncey/everquest-companion-swift/releases) — every version and
+  what changed in it.
 
 ## Attribution
 
