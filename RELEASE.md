@@ -58,9 +58,19 @@ steering the next pass if the first one missed the point (what it replaces is ke
 make draft-notes V=1.2.0 REDRAFT=1 NOTE="shorter, and lead with the overlay"
 ```
 
-`make notes` prints what the release body will say. Commit the notes.
+`make notes` prints what the release body will say.
 
-### 2. Check it
+### 2. Commit the notes
+
+`make draft-notes` only edits the file — it commits nothing. Once the notes read right, commit them
+(`make tag` refuses a dirty tree, and the notes have to be in the tagged commit to ship in the app):
+
+```sh
+git add Sources/EQCompanion/Prefs/ReleaseNotes.swift
+git commit -m "Release notes for 1.2.0"
+```
+
+### 3. Check it
 
 ```sh
 make verify          # build and the full suite; with Goldens/ present it proves parity
@@ -68,7 +78,7 @@ make verify          # build and the full suite; with Goldens/ present it proves
 
 CI runs the same thing on every push, but only a local run covers the real log.
 
-### 3. Tag
+### 4. Tag
 
 ```sh
 make tag V=1.2.0
@@ -79,7 +89,7 @@ git push upstream main --follow-tags
 with the notes as its message. It refuses a version with no notes, a dirty tree, or a tag that
 already exists.
 
-### 4. Publish
+### 5. Publish
 
 ```sh
 make release
