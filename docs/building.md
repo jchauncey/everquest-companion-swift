@@ -17,8 +17,22 @@
 | `make verify` | What CI runs: build, then the full suite |
 | `make log` | Tail the client log |
 | `make clean` | Remove build products |
+| `make sparkle-key` | Create the update-signing key (once per release machine) |
+| `make appcast` | Sign the release zip into `dist/appcast.xml` (`make release` runs it) |
 
 ## Cutting a release
+
+**Once per machine that cuts releases**, create the update-signing key:
+
+```sh
+make sparkle-key      # EdDSA key pair: private half in your login Keychain,
+                      # public half → Resources/sparkle-public-key.txt (commit it)
+.build/artifacts/sparkle/Sparkle/bin/generate_keys -x sparkle-private-key   # back it up, keep it safe
+```
+
+Every build embeds the public key, and the app refuses an update signed with anything else — so if
+the private key is lost, no installed copy can accept another update. On a second release machine,
+import the backup with `generate_keys -f sparkle-private-key`.
 
 Write the release's notes into `Sources/EQCompanion/Prefs/ReleaseNotes.swift` first — the app shows
 them under **Preferences → What's new**, and the GitHub release body is generated from the same
@@ -28,8 +42,13 @@ array, so the two cannot drift apart. Then:
 make draft-notes V=0.3.0              # optional: a first pass from the commit log, via claude -p
 make tag V=0.3.0                      # bumps VERSION, commits it, annotated tag v0.3.0
 git push upstream main --follow-tags
-make release                          # builds, zips, publishes, attaches the app
+make release                          # builds, zips, signs the appcast, publishes both
 ```
+
+`make release` also runs `make appcast`: Sparkle's `generate_appcast` signs the zip with the key in
+your Keychain and writes `dist/appcast.xml`, with the same notes embedded, and both are attached to
+the release. Installed copies read `releases/latest/download/appcast.xml`, so publishing is all it
+takes for them to see the update.
 
 `make tag` refuses a version with no notes, a dirty tree, or a tag that already exists; `make
 release` refuses until that tag is on GitHub. `make notes` prints what the body will say.
@@ -75,6 +94,7 @@ EverQuest (CrossOver bottle) ──appends──► eqlog_<Char>_<server>.txt
                  registry, the ops table, persisted state, and the in-process link
     EQCompanionCore  EngineClient: subscriptions, the epoch law, request correlation
     EQCompanion  the SwiftUI app and the floating overlays
+    Sparkle      the updater (the one outside dependency): reads the release appcast
     EQData       the committed game knowledge (JSON) and wiki images, as a resource bundle
 ```
 

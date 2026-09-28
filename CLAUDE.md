@@ -101,8 +101,12 @@ Rules that cross files:
   `PrefControls.swift` vocabulary. Engine diagnostics and client notes both go to
   `~/Library/Application Support/EQCompanion/client.log` — read it first when a panel is empty;
   screen capture is unavailable in the agent environment, so verify by log and test.
-- Sound packs download from the openpeon registry into Application Support; nothing else touches
-  the network. There is no telemetry and no updater — don't add controls that pretend otherwise.
+- The network is touched in two places only: sound packs download from the openpeon registry into
+  Application Support, and the updater (`AppUpdater.swift`, Sparkle) reads the appcast published
+  beside each GitHub release and installs an update only if its EdDSA signature verifies against
+  `Resources/sparkle-public-key.txt`. There is no telemetry. A build without that key starts no
+  updater and says so — don't add controls that pretend otherwise. `make release` signs and uploads
+  the appcast; it refuses without the key (`make sparkle-key`).
 
 ## Working in parallel
 

@@ -5,6 +5,8 @@ import EQCompanionCore
 struct EQCompanionApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var model = AppModel.shared
+    /// Created with the app so Sparkle's scheduled checks run (AppUpdater.swift).
+    @State private var updater = AppUpdater.shared
 
     var body: some Scene {
         WindowGroup("EQ Companion") {
@@ -17,6 +19,10 @@ struct EQCompanionApp: App {
         .windowToolbarStyle(.unified)
         .commands {
             CommandGroup(replacing: .newItem) {}
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { updater.checkForUpdates() }
+                    .disabled(!updater.canCheck)
+            }
             CommandMenu("Overlay") {
                 Button(model.overlayVisible ? "Hide DPS Overlay" : "Show DPS Overlay") {
                     model.overlayVisible.toggle()

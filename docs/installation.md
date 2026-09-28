@@ -32,6 +32,17 @@ Released builds are ad-hoc signed rather than notarized, so macOS quarantines a 
 and calls it damaged. Every release's notes carry the one-line `xattr` command that clears it.
 Building from source has no such step.
 
+## Updates
+
+A released build updates itself. On its second launch it asks whether to check for updates
+automatically; **EQ Companion → Check for Updates…** and **Preferences → Updates** check any time.
+An update is downloaded from the project's GitHub releases and installed only if its signature
+verifies — then the app relaunches, with your settings and saved state untouched.
+
+The first release with the updater has to be installed by hand; every release after it arrives this
+way. A copy you build yourself without the signing key has no updater and says so under
+Preferences → Updates.
+
 ## Point it at EverQuest
 
 In game, type `/log on` — the app has nothing to read until you do.

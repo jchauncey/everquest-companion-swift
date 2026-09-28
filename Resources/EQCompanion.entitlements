@@ -4,7 +4,7 @@
 <dict>
     <!-- Not sandboxed: the app reads a log inside a CrossOver bottle, which a sandbox would need a
          user-granted bookmark for. The engine runs in-process; the only network use is the
-         sound-pack download. -->
+         sound-pack download and the updater (Sparkle) reading the release appcast. -->
     <key>com.apple.security.app-sandbox</key><false/>
 </dict>
 </plist>

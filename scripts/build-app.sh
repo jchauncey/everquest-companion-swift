@@ -52,10 +52,29 @@ cp "$ICONSET/icon_512x512.png" "$ICONSET/icon_256x256@2x.png"
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 rm -r "$ICONSET"
 
-sed -e "s/__VERSION__/$VERSION/g" "$HERE/Resources/Info.plist" > "$APP/Contents/Info.plist"
+# The updater: Sparkle's framework in Contents/Frameworks, where the binary is told to look.
+SPARKLE="$HERE/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
+[ -d "$SPARKLE" ] || { echo "Sparkle.framework missing at $SPARKLE (swift package resolve)" >&2; exit 1; }
+mkdir -p "$APP/Contents/Frameworks"
+cp -R "$SPARKLE" "$APP/Contents/Frameworks/"
+if ! otool -l "$APP/Contents/MacOS/EQCompanion" | grep -q "@executable_path/../Frameworks"; then
+  install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP/Contents/MacOS/EQCompanion"
+fi
+
+# The public half of the update-signing key (`make sparkle-key` writes it). Without it the updater
+# stays off in this build rather than trusting nothing it could verify.
+KEYFILE="$HERE/Resources/sparkle-public-key.txt"
+KEY=""
+if [ -s "$KEYFILE" ]; then KEY="$(tr -d '[:space:]' < "$KEYFILE")"; else
+  echo "    (no Resources/sparkle-public-key.txt: this build will not update itself — see make sparkle-key)"
+fi
+sed -e "s/__VERSION__/$VERSION/g" -e "s|__SPARKLE_KEY__|${KEY:-__SPARKLE_KEY__}|g" \
+  "$HERE/Resources/Info.plist" > "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 echo "==> codesign (ad hoc)"
+# Inside out: the framework (and the helpers inside it) first, then the app around it.
+codesign --force --deep --sign - "$APP/Contents/Frameworks/Sparkle.framework"
 codesign --force --sign - --entitlements "$HERE/Resources/EQCompanion.entitlements" "$APP"
 codesign --verify --deep --strict "$APP" && echo "signature ok"
 

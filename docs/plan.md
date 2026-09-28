@@ -37,8 +37,9 @@ systematic pass: open every tab and every Preferences page in turn and fix what 
 - Banner/con-card duration lists are narrower than upstream's (2/4/6/8/10 vs 2/3/4/6/8/10/15;
   con card 2/3/5/8/12 vs 3…60 + "until I close it").
 - Voice: only macOS voices; upstream's Kokoro natural-voice engine has no macOS implementation.
-- Updates: no release feed. The repo is now public — add "check for updates" against its releases
-  API (no auto-install; reveal the download).
+- Updates: Sparkle is in (AppUpdater.swift, `make sparkle-key`, `make appcast`). Still to do: prove a
+  real update end to end (a test release installed over the previous one), and — if Gatekeeper ever
+  objects to an update Sparkle installed — Developer ID signing and notarization.
 - `Prefs.overlayIndependent` per-overlay values exist for ids meter/toast/banner/conCard only.
 
 ## 4. Upstream features not carried (see README "Not (yet) here")

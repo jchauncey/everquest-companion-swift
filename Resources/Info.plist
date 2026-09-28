@@ -19,5 +19,10 @@
     <key>NSSupportsAutomaticTermination</key><false/>
     <key>NSSupportsSuddenTermination</key><false/>
     <key>LSUIElement</key><false/>
+    <!-- Sparkle (AppUpdater.swift): the appcast published beside each GitHub release, and the public
+         half of the EdDSA key that signs them (scripts/build-app.sh fills it from
+         Resources/sparkle-public-key.txt; without one the updater stays off). -->
+    <key>SUFeedURL</key><string>https://github.com/jchauncey/everquest-companion-swift/releases/latest/download/appcast.xml</string>
+    <key>SUPublicEDKey</key><string>__SPARKLE_KEY__</string>
 </dict>
 </plist>

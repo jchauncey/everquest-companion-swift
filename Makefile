@@ -28,6 +28,10 @@ RELNOTES := .build/relnotes
 # GITHUB_TOKEN, so when PERSONAL_GITHUB_TOKEN is set it is handed to these calls and no others;
 # unset, gh falls through to whatever it would have used anyway.
 GH := $(if $(PERSONAL_GITHUB_TOKEN),GH_TOKEN="$(PERSONAL_GITHUB_TOKEN)" )gh
+# Sparkle's release tools, shipped inside its SwiftPM artifact (`swift package resolve` fetches it).
+SPARKLE_BIN := .build/artifacts/sparkle/Sparkle/bin
+# Where the release's archive is downloaded from; the appcast's enclosure URLs point here.
+REPO_URL := https://github.com/jchauncey/everquest-companion-swift
 REMOTE ?= upstream
 
 .DEFAULT_GOAL := help
@@ -199,6 +203,36 @@ tag: $(RELNOTES) ## Set the version, commit it, and tag it: make tag V=0.3.0
 	@echo "tagged v$(V)."
 	@echo "next:  git push $(REMOTE) main --follow-tags  &&  make release"
 
+# ---- updates (Sparkle) -----------------------------------------------------
+#
+# Once per machine that cuts releases: an EdDSA key pair, the private half in your login Keychain,
+# the public half written to Resources/sparkle-public-key.txt (commit it — every build embeds it, and
+# an update signed with any other key is refused). BACK UP THE PRIVATE KEY:
+#     $(SPARKLE_BIN)/generate_keys -x sparkle-private-key   (then keep that file somewhere safe)
+# Losing it means no installed copy can ever accept another update.
+
+.PHONY: sparkle-key
+sparkle-key: ## Create (or read) the update-signing key; writes Resources/sparkle-public-key.txt
+	@test -x $(SPARKLE_BIN)/generate_keys || swift package resolve
+	@$(SPARKLE_BIN)/generate_keys -p >/dev/null 2>&1 || $(SPARKLE_BIN)/generate_keys >/dev/null
+	@$(SPARKLE_BIN)/generate_keys -p > Resources/sparkle-public-key.txt
+	@echo "public key: $$(cat Resources/sparkle-public-key.txt) -> Resources/sparkle-public-key.txt"
+	@echo "back up the private key: $(SPARKLE_BIN)/generate_keys -x <file>"
+
+.PHONY: appcast
+appcast: $(RELNOTES) ## Sign the release zip and write dist/appcast.xml (make release runs it)
+	@test -s Resources/sparkle-public-key.txt || { echo "no update key: run make sparkle-key first"; exit 1; }
+	@test -f "$(ZIP)" || { echo "no $(ZIP): run make dist-zip first"; exit 1; }
+	@if [ -d dist/appcast ]; then rm -r dist/appcast; fi
+	@mkdir -p dist/appcast
+	@cp "$(ZIP)" dist/appcast/
+	@# The notes Sparkle shows are the ones the app and the GitHub release carry (Sparkle 2.9+ reads
+	@# a .md beside the archive).
+	@$(RELNOTES) render "$(VERSION)" > "dist/appcast/EQCompanion-$(VERSION).md"
+	@$(SPARKLE_BIN)/generate_appcast --download-url-prefix "$(REPO_URL)/releases/download/$(TAG)/" \
+		--embed-release-notes --link "$(REPO_URL)" -o dist/appcast.xml dist/appcast
+	@echo "dist/appcast.xml (signed with the Keychain key)"
+
 .PHONY: dist-zip
 dist-zip: app ## Build the app and zip it for upload (ditto keeps the signature intact)
 	@rm -f "$(ZIP)"
@@ -217,9 +251,12 @@ release: $(RELNOTES) ## Publish VERSION as a GitHub release with the app attache
 		|| { echo "HEAD is not $(TAG) — check out the tag (or main at it) before releasing"; exit 1; }
 	@test -z "$$(git status --porcelain)" || { echo "working tree is dirty — the release would not be $(TAG)"; exit 1; }
 	@if $(GH) release view "$(TAG)" >/dev/null 2>&1; then echo "release $(TAG) already exists"; exit 1; fi
+	@test -s Resources/sparkle-public-key.txt || { echo "no update key: run make sparkle-key (a release without one could never update itself)"; exit 1; }
 	$(MAKE) dist-zip
+	$(MAKE) appcast
 	@{ $(RELNOTES) render "$(VERSION)"; cat scripts/release-install-note.md; } > dist/release-body.md
-	@$(GH) release create "$(TAG)" "$(ZIP)" --title "EQ Companion $(VERSION)" --notes-file dist/release-body.md \
+	@# appcast.xml rides beside the zip: releases/latest/download/appcast.xml is the app's feed.
+	@$(GH) release create "$(TAG)" "$(ZIP)" dist/appcast.xml --title "EQ Companion $(VERSION)" --notes-file dist/release-body.md \
 		|| { echo; echo "if that was 403: the token gh used cannot write this repository. Export"; \
 		     echo "PERSONAL_GITHUB_TOKEN (a token for the account that owns it) and run make release"; \
 		     echo "again; it is handed to gh ahead of GITHUB_TOKEN for this target only."; exit 1; }
