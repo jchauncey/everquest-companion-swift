@@ -53,6 +53,12 @@ enum ReleaseNotes {
 
     /// Every release, NEWEST FIRST — the order the panel renders and every derivation below assumes.
     static let all: [ReleaseNote] = [
+        ReleaseNote(version: "1.2.0", date: "2026-09-28", entries: [
+            ReleaseEntry(.new, "EQ Companion can now update itself. Choose EQ Companion > Check for Updates... to look for a new version now, or open Preferences > Updates to turn automatic checks and background downloads on or off, check now, and see when the app last checked."),
+            ReleaseEntry(.new, "Before, the app never told you that a new version was out. To get it, you had to find the releases page, download the new version and replace the app yourself."),
+            ReleaseEntry(.new, "The app installs an update only if it was signed by EQ Companion's own release key. If a download was changed along the way, the app won't install it."),
+            ReleaseEntry(.fixed, "On the Combat tab, casts of a spell that more than one of your classes can use, like Envenomed Bolt or Plague on a Shaman who is also a Necromancer, were counted as Other. They now count toward the class that gets the spell at the lowest level.")
+        ]),
         ReleaseNote(version: "1.1.1", date: "2026-09-25", entries: [
             ReleaseEntry(.changed, "The Overview's Leveling card now covers all of your play instead of just the last hour. It shows your level and the level you started at, time played and time active, levels gained with the active time each one took, AA and kills with how many you get per active hour, a bar of active hours for each day you played, and your latest level-ups."),
             ReleaseEntry(.changed, "The Overview's headline numbers are now cards that run the full width of the page. Cards that sit side by side are the same height, so a short card no longer leaves a gap under it."),
